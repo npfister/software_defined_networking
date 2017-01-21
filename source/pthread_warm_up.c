@@ -20,12 +20,12 @@ int main(int argc, char const *argv[])
 {
 	pthread_t tid[nthreads];//threads tid=thread ID
 	int sleep_time[nthreads];
-
+	int i;
 	//random number init
 	srand((unsigned)time(NULL));
 
 	//eventual loop to create
-	for (int i = 0; i < nthreads; ++i)
+	for (i = 0; i < nthreads; ++i)
 	{	
 		sleep_time[i] = (rand() % 10) + 1;//1 to 10
 		//threads default to joinable state not detached
@@ -37,7 +37,7 @@ int main(int argc, char const *argv[])
 	}
 	
 	//wait for threads to finish
-	for (int i = 0; i < nthreads; ++i)
+	for (i = 0; i < nthreads; ++i)
 	{
 		pthread_join(tid[i],NULL);
 	}
