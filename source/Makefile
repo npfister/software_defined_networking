@@ -3,11 +3,19 @@
 CC=gcc
 CFLAGS= -Wall -Wshadow -pthread
 
+all: clean pthread_warm_up pthreads_with_logging p2p
+
 clean:
-	rm -rf pthread_warm_up
+	rm -rf pthread_warm_up pthreads_with_logging p2p_msg_client test.txt
 
 pthread_warm_up:
 	$(CC) $(CFLAGS) pthread_warm_up.c -o pthread_warm_up
 
-pthread_with_logging:
-	$(CC) $(CFLAGS) pthread_with_logging.c -o pthread_with_logging
+pthreads_with_logging:
+	$(CC) $(CFLAGS) pthreads_with_logging.c -o pthreads_with_logging
+
+#peer to peer chat box application w/ generic tranceivers
+#to be adapted into clients and server for SDN project
+p2p:
+	$(CC) $(CFLAGS) p2p_msg_client.c -o p2p_msg_client
+
