@@ -1,3 +1,10 @@
+/*
+ * Created by: John Skubic
+ * 
+ * Graph implementation using adjacency list.
+ * Includes widest path algorithm 
+ */
+
 #include "graph.h"
 #include <stdio.h>
 #include <stdlib.h>

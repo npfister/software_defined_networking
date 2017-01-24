@@ -1,3 +1,9 @@
+/*
+ *  Created by: John Skubic
+ *
+ *  Header for graph implementation
+ */
+
 #ifndef GRAPH_H
 #define GRAPH_H
 

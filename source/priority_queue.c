@@ -1,3 +1,11 @@
+/*
+ *  Created by: John Skubic
+ *
+ *  Priority Queue implementation
+ *  Provides support for both min and max heaps
+ *  log(n) insertion and deletion time
+ */
+
 #include "priority_queue.h"
 #include <stdio.h>
 #include <stdlib.h>

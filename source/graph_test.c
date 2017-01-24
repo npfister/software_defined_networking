@@ -1,3 +1,11 @@
+/*
+ *  Created by: John Skubic
+ *
+ *  File to test functionality of graph functions
+ *  Includes tests for priority queue
+ *
+ */
+
 #include "graph.h"
 #include "priority_queue.h"
 #include <stdio.h>

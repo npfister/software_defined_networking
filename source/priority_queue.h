@@ -1,3 +1,11 @@
+/*
+ *  Created by: John Skubic
+ *
+ *  Header for priority Queue
+ *
+ */
+
+
 #ifndef PRIORITY_QUEUE_H
 #define PRIORITY_QUEUE_H
 
