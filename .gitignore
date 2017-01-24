@@ -1,0 +1,9 @@
+#ignore temporary files
+*.gch
+*.swp
+#ignore binary and output files
+source/p2p_msg_client
+source/pthread_warm_up
+source/pthreads_with_logging
+source/test.txt
+source/graph_test
