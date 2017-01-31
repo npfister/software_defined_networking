@@ -1,6 +1,6 @@
 //Author: Nicholas A. Pfister
-//pthread p2p message example
-//run command: ./p2p_msg_client SERVER PORTNUM DEST_PORTNUM
+//SDN client switch
+//run command: ./switch_sdn 
 
 #include <pthread.h>
 #include <stdio.h>
@@ -37,6 +37,47 @@ struct params {
 	char serv_name[serv_name_size];
 };
 
+//add switch to indicate 1+ dead links (by switch ID)
+//add switch to 
+//*******
+//create shared memory neighbors/routing table structure for receive thread to update, and send thread to read from
+//main will set flag to indicate whether a linkID has been marked dead by command line input
+threads will lock on properties structure:
+	bool send_topo_update //when a dead switch comes alive again receiver marks TRUE, after completion sender clears
+per switchID:
+	int_64 last_kalive //receiver sets this as the time() when a keepalive is received 
+					   //sender references to determine if switch is DEAD (m*k) and 
+					       //should mark send_kalive false and send controller TOPOLOGY UPDATE
+
+	bool link_dead // set by main() upon program start (from -f dead links on command line)
+				   // if dead keepalives are not sent down this link (OVERRIDES EVERYTHING)
+
+	//means I think that switch/neighbor is live
+	bool alive       //sender sends this switchID a KEEP_ALIVE if true
+					 //if false, sender has already marked switch dead
+					 //set false if (current_time - last_kalive_) > m*k
+
+	//receiver receives KEEP_ALIVE from switch
+		//last_kalive = time()
+		//if(alive[switchID] == FALSE)
+			//send_topo_update = TRUE;//sender clears
+			//alive[switchID] = TRUE;
+	//sender
+		//get struct lock
+		//if (current_time() - last_kalive[switchIDs] & (alive[switchID]=TRUE)) >= m*k //FOR ALL SWITCHIDs
+			//send_topo_update = TRUE;
+			//alive[switchID] = FALSE; //that way will not send topology update again if switch is still dead
+		//if (send_topo_update == TRUE) //***HANDLES switches that have died (sig from > m*k) or come back alive (sig from receiver)
+			//send TOPOLOGY_UPDATE to controller
+			//send_topo_update = FALSE;//clear flag
+		//if (current_time() - my_last_kalive_sent)
+			//send kalives to all "connected to" switches
+		//release struct lock
+		//sleep(tenth second);
+
+
+//*******
+
 int main(int argc, char const *argv[])
 {
 	int i;//loop variable
@@ -53,6 +94,7 @@ int main(int argc, char const *argv[])
 	if((file=fopen("test.txt","w")) == NULL)
 		exit(-5);
 	fclose(file);
+
 
 	//create threads
 	//receiver
@@ -144,6 +186,14 @@ void * receiver (void * param){
 }
 
 void * transmitter (void * param){
+	//variable for last transmit
+	//if current time - last transmit >= to K,
+		//then transmit KEEP_ALIVE to all !link_dead and alive switchIDs, update last_transmit = time()
+
+	//inside transmitter loop, sleep for 1/10ths of seconds each iteration to allow receive thread to get lock
+
+	//lock neighbors stucture, unlock per iteration
+
 	//vars
 	int my_tid = pthread_self();//thread ID
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
