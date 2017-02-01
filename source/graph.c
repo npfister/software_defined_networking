@@ -35,7 +35,7 @@ graph_t *create_graph_from_file(char *filename) {
     adj_list[i].vertex_conn = 0;
     adj_list[i].bw = 0; 
     adj_list[i].delay = 0;
-    adj_list[i].active = 1; //TODO: ONLY FOR DEBUG
+    adj_list[i].active = 0; 
     adj_list[i].next = NULL; 
   }
   
@@ -58,7 +58,7 @@ graph_t *create_graph_from_file(char *filename) {
     temp->vertex_conn = vertex_b;
     temp->bw = bw;
     temp->delay = delay;
-    temp->active = 1; //TODO: ONLY FOR DEBUG
+    temp->active = 0; 
     temp->next = adj_list[vertex_a].next;
     adj_list[vertex_a].next = temp;
     
