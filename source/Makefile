@@ -19,6 +19,9 @@ pthreads_with_logging:
 p2p:
 	$(CC) $(CFLAGS) p2p_msg_client.c -o p2p_msg_client
 
+switch:
+	$(CC) $(CFLAGS) switch_sdn.c -o switch_sdn
+
 graph: graph_test.o graph.o priority_queue.o
 	$(CC) $(CFLAGS) -o graph_test graph_test.o graph.o priority_queue.o
 
