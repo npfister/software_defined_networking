@@ -6,7 +6,7 @@ CFLAGS= -Wall -Wshadow -pthread
 all: clean pthread_warm_up pthreads_with_logging p2p
 
 clean:
-	rm -rf pthread_warm_up pthreads_with_logging p2p_msg_client test.txt *.o graph_test 
+	rm -rf pthread_warm_up pthreads_with_logging p2p_msg_client test.txt *.o graph_test *.gch sdn_controller
 
 pthread_warm_up:
 	$(CC) $(CFLAGS) pthread_warm_up.c -o pthread_warm_up
@@ -21,6 +21,12 @@ p2p:
 
 switch:
 	$(CC) $(CFLAGS) switch_sdn.c -o switch_sdn
+
+sdn_controller: network_controller.o graph.o priority_queue.o
+	$(CC) $(CFLAGS) -o sdn_controller network_controller.o graph.o priority_queue.o
+
+network_controller.o: network_controller.c graph.h packet_types.h
+	$(CC) $(CFLAGS) -c network_controller.c graph.h packet_types.h
 
 graph: graph_test.o graph.o priority_queue.o
 	$(CC) $(CFLAGS) -o graph_test graph_test.o graph.o priority_queue.o
