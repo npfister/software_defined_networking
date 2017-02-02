@@ -25,9 +25,10 @@
 #define nthreads 2 // number of threads to spawn
 #define receive 0 //thread 0 is receiver
 #define send 1 //thread 1 is sender
-#define log_size 10 //num chars in log file name
+#define log_size 20 //num chars in log file name
 #define serv_name_size 20 //max num chars in server name
 #define rcv_buff_size 255 //max UDP message size
+#define trans_slp_intrv 20 // percent of a second defining granularity sender thread checks for dead switches/send kalives
 
 void * receiver (void * param);
 void * transmitter (void * param);
@@ -35,12 +36,11 @@ void * transmitter (void * param);
 //struct to pass multiple things to entry function
 typedef struct params params_t;
 struct params {
-	//int sleep_time;
 	pthread_rwlock_t file_lock;
 	pthread_mutex_t swb_mutex;//lock for switch info struct
 	char file_name[log_size];//log file name
 	int port_num;//this server's port number
-	int serv_port;//server port number
+	int ctrl_port;//server port number
 	char serv_name[serv_name_size];
 };
 typedef struct sw_info switch_info_t;
@@ -85,10 +85,13 @@ int main(int argc, char const *argv[])
 		switch_board.active_flag[i]=  0;//0 is inactive, 1 is active
 		switch_board.link_alive [i]=  1;//assume links alive unless cmdline says otherwise
 	}
+	//init log filename  --  snprintf prevents buffer overflows
+	snprintf(params[receive].file_name,log_size, "switch_%d.txt", atoi(argv[1]));//argv[1] is switchID
+	strncpy(params[send].file_name, params[receive].file_name,log_size);//no buff overflow
 
 	//clear log file
 	FILE * file;
-	if((file=fopen("test.txt","w")) == NULL)
+	if((file=fopen(params[receive].file_name,"w")) == NULL)
 		exit(-5);
 	fclose(file);
 
@@ -114,13 +117,11 @@ int main(int argc, char const *argv[])
 
 	//CREATE THREADS
 	//receiver
-	//params[receive].sleep_time = (rand() % 10) + 1;//1 to 10
-	strncpy(params[receive].file_name, "test.txt",log_size);//no buff overflow
 	params[receive].file_lock = file_lock;
 	params[receive].swb_mutex = swb_mutex;
-	params[receive].port_num = atoi(argv[2]);//portnum
-	params[receive].dest_port= atoi(argv[3]);//dest portnum
-	strncpy(params[receive].serv_name,argv[1],serv_name_size);//will not buffer overflow
+	params[receive].port_num = 1024 + (rand() % 500) + (time() % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
+	params[receive].ctrl_port= atoi(argv[3]);//controller's portnum
+	strncpy(params[receive].serv_name,argv[2],serv_name_size);//will not buffer overflow
 
 	//threads default to joinable state, not detached
 	//create reveiver
@@ -128,19 +129,16 @@ int main(int argc, char const *argv[])
 	{printf("Error creating thread\n");	exit(-1);}
 
 	//transmitter
-	params[send].sleep_time = (rand() % 10) + 1;//1 to 10
-	strncpy(params[send].file_name, "test.txt",log_size);//no buff overflow
 	params[send].file_lock  = file_lock;
-	params[send].port_num = atoi(argv[2]);//portnum
-	params[send].dest_port= atoi(argv[3]);//dest portnum
-	strncpy(params[send].serv_name,argv[1],serv_name_size);//will not buffer overflow
+	params[send].swb_mutex = swb_mutex;
+	params[send].port_num = params[receive].port_num;//this switch's portnum
+	params[send].ctrl_port= atoi(argv[3]);//controller's portnum
+	strncpy(params[send].serv_name,argv[2],serv_name_size);//will not buffer overflow
 
 	//threads default to joinable state, not detached
-	//create reveiver
+	//create transmitter
 	if(pthread_create(&tid[send],NULL,transmitter,&params[send]))
 	{printf("Error creating thread\n");	exit(-9);}
-
-
 
 	//THREADS DOING WORK   **********************************
 
