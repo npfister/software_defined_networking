@@ -26,27 +26,56 @@
 #define serv_name_size 20 //max num chars in server name
 #define rcv_buff_size 255 //max UDP message size
 
-#define RCV_QUEUE_SIZE 16
-#define SEND_QUEUE_SIZE 16
+#define RCV_QUEUE_SIZE 32
+#define SEND_QUEUE_SIZE 32
 
-void * receiver (void * param);
-void * transmitter (void * param);
+
+//********** CUSTOM TYPES *****************
 
 // generic message type for send/rcv queues
 typedef struct {
   int size;
   unsigned char data[rcv_buff_size];
+  unsigned int host;
+  int port;
 } nc_message_t;
 
+//struct to pass multiple things to entry function
+typedef struct params params_t;
+struct params {
+	int sleep_time;
+	pthread_rwlock_t file_lock;
+	char file_name[log_size];//log file name
+	int port_num;//this client's port number
+	int dest_port;//destination port number
+	char serv_name[serv_name_size];
+};
+
+typedef struct {
+  long long alive_time;
+  unsigned int host;
+  int port;
+} switch_info_t;
+
+ 
+//************** GLOBAL VARS *********************
+
 // Global Send and rcv queues
-nc_message_t send_queue[SEND_QUEUE_SIZE];
-nc_message_t rcv_queue[RCV_QUEUE_SIZE];
+nc_message_t    send_queue[SEND_QUEUE_SIZE];
+nc_message_t    rcv_queue[RCV_QUEUE_SIZE];
 pthread_mutex_t sq_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t rq_lock = PTHREAD_MUTEX_INITIALIZER;
-int sq_head;
-int sq_tail;
-int rq_head;
-int rq_tail;
+int             sq_head;
+int             sq_tail;
+int             rq_head;
+int             rq_tail;
+
+// Function Pointers
+void * receiver (void * param);
+void * transmitter (void * param);
+
+
+// ************** FUNCTION DEFINITIONS *****
 
 inline int queue_full (int head, int tail, int size) { return ((head+1)%size == tail);}
 inline int queue_empty (int head, int tail, int size) { return head == tail;}
@@ -58,6 +87,7 @@ long long current_timestamp() {
     // printf("milliseconds: %lld\n", milliseconds);
     return milliseconds;
 }
+
 
 // Queue and Dequeue for circular buffers
 int enqueue(pthread_mutex_t *lock, nc_message_t *queue, nc_message_t message, int *head, int *tail, int size) {
@@ -95,34 +125,97 @@ nc_message_t dequeue(pthread_mutex_t *lock, nc_message_t *queue, int *head, int 
 
   return message;
 }
+            
+void fill_in_neighbors(register_resp_t *resp, graph_t *graph, switch_info_t *switch_info, int switch_id) {
+  int j = 0;
+  int i = 0;
+  edge_t *curr_ptr = graph->adj_list[switch_id].next;
 
-void send_route_update() {
-  //TODO
+  while(curr_ptr != NULL) {
+    if(switch_info[curr_ptr->vertex_conn].port != -1) { //is registered
+      resp->neighbor_id[j] = curr_ptr->vertex_conn;
+      resp->neighbor_id[j] = graph->adj_list[curr_ptr->vertex_conn].active;
+      j++;
+    }
+    curr_ptr = curr_ptr->next;
+  }
+
+  for(i = 0; i < switch_id; i++) {
+    curr_ptr = graph->adj_list[i].next;
+    if(graph->adj_list[i].active) {
+      while(curr_ptr != NULL) {
+        if(curr_ptr->vertex_conn == switch_id) {
+          if(switch_info[i].port != -1) { //is registered   
+            resp->neighbor_id[j] = curr_ptr->vertex_conn;
+            resp->neighbor_id[j] = graph->adj_list[i].active;
+            j++;
+          }
+          break;
+        }
+        curr_ptr = curr_ptr->next;
+      }
+    }
+  }
+
+  resp->neighbor_id[j] = -1;
+
+} 
+
+void send_route_update(graph_t *graph, switch_info_t *switch_info) {
+  int             i,j;
+  route_update_t  rup;
+  int             *table;
+  nc_message_t    curr_message;
+  
+  rup.type = ROUTE_UPDATE;
+
+  for(i = 0; i < MAX_SWITCHES; i++) {
+    rup.route_table[i] = -1;
+  }
+
+  for(i = 0; i < graph->size; i++) {
+    if(graph->adj_list[i].active) {
+      table = build_routing_table(graph, i);
+      for(j = 0; j < graph->size; j++) {
+        rup.route_table[j] = (char)table[j];
+      }
+      
+      curr_message.size = sizeof(route_update_t);
+      memcpy(curr_message.data, &rup, sizeof(route_update_t)); 
+      curr_message.host = switch_info[i].host;
+      curr_message.port = switch_info[i].port;
+      while (!enqueue(&sq_lock, send_queue, curr_message, &sq_head, &sq_tail, SEND_QUEUE_SIZE)) {}
+      free(table);
+    }
+  }
 }
 
-//struct to pass multiple things to entry function
-typedef struct params params_t;
-struct params {
-	int sleep_time;
-	pthread_rwlock_t file_lock;
-	char file_name[log_size];//log file name
-	int port_num;//this client's port number
-	int dest_port;//destination port number
-	char serv_name[serv_name_size];
-};
+//**************** MAIN ****************************
 
 int main(int argc, char *argv[])
 {
-	int i;//loop variable
-	pthread_t tid[nthreads];//threads tid=thread ID
-	params_t params[nthreads];//param structs that i last 
-	pthread_rwlock_t file_lock;//file thread safe lock, not process safe
+	int               i;//loop variable
+  
+  // Threading variables
+	pthread_t         tid[nthreads];//threads tid=thread ID
+	params_t          params[nthreads];//param structs that i last 
+	pthread_rwlock_t  file_lock;//file thread safe lock, not process safe
+
   // Graph Variables for Widest Path
-  graph_t *graph;
-  long long switch_alive_time[MAX_SWITCHES];
-  long long curr_time;
-  //temp receive message
-  nc_message_t curr_message;
+  graph_t           *graph;
+  switch_info_t     switch_info[MAX_SWITCHES];  
+  long long         curr_time;          
+  edge_t            *link_temp;
+  int               needs_update;
+
+  // message temporary vars
+  nc_message_t      curr_message;
+  unsigned char     curr_message_type;
+  register_req_t    reg_req_temp;
+  register_resp_t   reg_resp_temp;
+  topology_update_t topology_update_temp;
+
+  //*********** Initializations **************************
 
   if(argc < 3) {
     printf("Usage:\n%s <port_num> <network_topology_file>\n", argv[0]);
@@ -146,6 +239,20 @@ int main(int argc, char *argv[])
 	if((file=fopen("test.txt","w")) == NULL)
 		exit(-5);
 	fclose(file);
+
+  // Read Network Topology File
+  if((graph = create_graph_from_file(argv[3])) == NULL) {
+    printf("Error: Couldn't create graph from file: %s\n", argv[1]);
+    return EXIT_FAILURE;
+  }
+
+  for(i = 0; i < MAX_SWITCHES; i++) {
+    switch_info[i].alive_time = 0;
+    switch_info[i].host = 0;
+    switch_info[i].port = -1;
+  }
+
+  //********** BEGIN CREATE SEND AND RCV THREADS ************
 
 	//create threads
 	//receiver
@@ -174,30 +281,92 @@ int main(int argc, char *argv[])
 	if(pthread_create(&tid[send],NULL,transmitter,&params[send]))
 	{printf("Error creating thread\n");	exit(-9);}
 
+  //*************** END CREATE SEND AND RCV THREADS *********  
 
-	//THREADS DOING WORK   **********************************
+	//*************** THREADS DOING WORK   ********************
+	
+  //*************** BEGIN SDN CONTROLLER ********************
 
-  // Read Network Topology File
-  if((graph = create_graph_from_file(argv[3])) == NULL) {
-    printf("Error: Couldn't create graph from file: %s\n", argv[1]);
-    return EXIT_FAILURE;
-  }
-
-  // Set all switch last alive message times to now
-  switch_alive_time[0] =  current_timestamp();
-  for(i = 1; i < MAX_SWITCHES; i++) {
-    switch_alive_time[i] = switch_alive_time[0];
-  }
   
-  // Respond to Message queue 
+  // MAIN SDN CONTROLLER LOOP 
   while (1) {
     // React to any pending messages
     do {
       curr_message = dequeue(&rq_lock, rcv_queue, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
       
       if(curr_message.size != 0) {
-        //TODO: react to message 
+        curr_message_type = curr_message.data[0];
+        switch (curr_message_type) {
 
+          case REGISTER_REQUEST :
+            memcpy(&reg_req_temp, &curr_message, sizeof(register_req_t));
+            memset(&reg_resp_temp, 0, sizeof(register_resp_t));
+            // activate switch, assign id
+            for(i = 0; i < graph->size; i++) {
+              if(switch_info[i].port == -1)
+                break;
+            }
+            activate_switch(graph,i);
+            switch_info[i].port = reg_req_temp.port;
+            switch_info[i].host = reg_req_temp.host;
+            switch_info[i].alive_time = current_timestamp();
+
+            // send neighbors
+            reg_resp_temp.type = REGISTER_RESPONSE;
+            reg_resp_temp.switch_id = i;
+            fill_in_neighbors(&reg_resp_temp, graph, switch_info, i); 
+            for(i = 0; i < graph->size; i++) {
+              if(reg_resp_temp.neighbor_id[i] == -1)
+                break;
+      
+              reg_resp_temp.host[i] = switch_info[(int)reg_resp_temp.neighbor_id[i]].host;
+              reg_resp_temp.port[i] = switch_info[(int)reg_resp_temp.neighbor_id[i]].port;
+            }      
+
+            curr_message.size = sizeof(register_resp_t);
+            memcpy(curr_message.data, &reg_resp_temp, sizeof(register_resp_t)); 
+            curr_message.host = reg_req_temp.host;
+            curr_message.port = reg_req_temp.port;
+            while (!enqueue(&sq_lock, send_queue, curr_message, &sq_head, &sq_tail, SEND_QUEUE_SIZE)) {}
+
+            // send routing tables
+            send_route_update(graph, switch_info);
+
+            break;
+
+          case TOPOLOGY_UPDATE :
+            memcpy(&topology_update_temp, &curr_message, sizeof(topology_update_t));
+
+            // set switch alive time
+            switch_info[topology_update_temp.sender_id].alive_time = current_timestamp();
+
+            // check to see if new link information
+            needs_update = 0;
+            for(i = 0; i < graph->size; i++) {
+              if(topology_update_temp.neighbor_id[i] == -1) break;
+
+
+              link_temp = find_link(graph, topology_update_temp.sender_id, topology_update_temp.neighbor_id[i]);
+
+              if(link_temp == NULL) {
+                printf("ERROR: Unexpected neighbor for sender id: %d and id: %d\n", topology_update_temp.sender_id,
+                topology_update_temp.neighbor_id[i]);
+              } else {
+                if( link_temp->active != topology_update_temp.active_flag[i]) {
+                  needs_update = 1;
+                  link_temp->active = topology_update_temp.active_flag[i];
+                }
+              }
+            }
+
+            // if new info, send routing tables
+            if(needs_update) {
+              send_route_update(graph, switch_info);
+            }
+            break;
+          default : 
+            printf("Warning: Controller received unexpected message type: %d\n", curr_message_type); 
+        }
       }
 
     } while(curr_message.size != 0);
@@ -206,19 +375,19 @@ int main(int argc, char *argv[])
     curr_time = current_timestamp();
     for(i=0; i < graph->size; i++) {
       if(graph->adj_list[i].active){ // check active links 
-        if((curr_time - switch_alive_time[i]) > K_SEC*M_MISSES*1000) {
-          // found dead link
+        if((curr_time - switch_info[i].alive_time) > K_SEC*M_MISSES*1000) {
+          // found dead switch 
           deactivate_switch(graph, i); 
-          send_route_update();
+          send_route_update(graph, switch_info);
         }
       }
     } 
     
   }
 
-  // while dead nodes exist
-  //    react to dead nodes
-  //   
+  //**************** END SDN CONTROLLER ************************
+
+  delete_graph(graph);
 
 	//wait for threads to finish
 	for (i = 0; i < nthreads; ++i)
@@ -241,7 +410,7 @@ int main(int argc, char *argv[])
 
 void * receiver (void * param){
 	//vars
-	int my_tid = pthread_self();//thread ID
+	//int my_tid = pthread_self();//thread ID
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
 	//FILE *file;//log file
@@ -296,7 +465,7 @@ void * receiver (void * param){
 
 void * transmitter (void * param){
 	//vars
-	int my_tid = pthread_self();//thread ID
+	//int my_tid = pthread_self();//thread ID
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
 	//FILE *file;//log file

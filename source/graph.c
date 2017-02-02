@@ -74,6 +74,10 @@ graph_t *create_graph_from_file(char *filename) {
   return graph; 
 }
 
+void delete_graph(graph_t *graph) {
+  //TODO
+}
+
 edge_t *find_link(graph_t *graph, int vertex_a, int vertex_b){
   edge_t *curr_ptr = NULL;
 
