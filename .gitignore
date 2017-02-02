@@ -1,6 +1,7 @@
 #ignore temporary files
 *.gch
 *.swp
+*.o
 #ignore binary and output files
 source/p2p_msg_client
 source/pthread_warm_up

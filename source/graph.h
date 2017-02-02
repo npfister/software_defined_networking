@@ -27,7 +27,7 @@ typedef struct routing_table_t {
 
 graph_t *create_graph_from_file(char *filename);
 void print_graph(graph_t *graph);
-void delete_graph(edge_t *graph);
+void delete_graph(graph_t *graph);
 void activate_link(graph_t *graph, int vertex_a, int vertex_b);
 void deactivate_link(graph_t *graph, int vertex_a, int vertex_b);
 void activate_switch(graph_t *graph, int vertex);

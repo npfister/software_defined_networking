@@ -29,13 +29,13 @@ enum {
 
 typedef struct { 
   unsigned char type;
-  unsigned char sender_id;
   unsigned int host; 
   unsigned int port;
 }register_req_t;
 
 typedef struct { 
   unsigned char type;
+  unsigned char switch_id;
   char neighbor_id[MAX_NEIGHBORS]; // -1 -> invalid entry
   unsigned char active_flag[MAX_NEIGHBORS];
   unsigned char host[MAX_NEIGHBORS];
