@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+#include <ctype.h>
 //networking includes
 #include <sys/socket.h>
 #include <netdb.h>
@@ -18,9 +21,7 @@
 #include <arpa/inet.h>
 //sdn control message types
 #include <packet_types.h> //make packet.c to rip off message type, should be universal to server and switch
-//includes not relevant to project
-#include <time.h>
-#include <unistd.h>
+
 
 #define nthreads 2 // number of threads to spawn
 #define receive 0 //thread 0 is receiver
@@ -38,6 +39,7 @@ typedef struct params params_t;
 struct params {
 	pthread_rwlock_t file_lock;
 	pthread_mutex_t swb_mutex;//lock for switch info struct
+	pthread_cond_t registered;//conditional wait for receiver to signal transmitter register response has come and time to start kalives
 	char file_name[log_size];//log file name
 	int port_num;//this server's port number
 	int ctrl_port;//server port number
@@ -66,7 +68,10 @@ int main(int argc, char const *argv[])
 	//VARIABLES
 	int i;//loop variable
 	pthread_t tid[nthreads];//threads tid=thread ID
-	params_t params[nthreads];//param structs that i last 
+	params_t params[nthreads];//param structs that i last
+	pthread_cond_t registered;
+	if(pthread_cond_init(&registered,NULL))
+		{printf("Error creating registered cond_t signal\n");exit(-12);}
 	pthread_mutex_t swb_mutex;//lock for switch info struct
 	if(pthread_mutex_init(&swb_mutex,NULL))
 		{printf("Error creating switch mutex\n");exit(-11);}
@@ -117,6 +122,7 @@ int main(int argc, char const *argv[])
 
 	//CREATE THREADS
 	//receiver
+	params[receive].registered = registered;
 	params[receive].file_lock = file_lock;
 	params[receive].swb_mutex = swb_mutex;
 	params[receive].port_num = 1024 + (rand() % 500) + (time() % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
@@ -129,6 +135,7 @@ int main(int argc, char const *argv[])
 	{printf("Error creating thread\n");	exit(-1);}
 
 	//transmitter
+	params[send].registered = registered;
 	params[send].file_lock  = file_lock;
 	params[send].swb_mutex = swb_mutex;
 	params[send].port_num = params[receive].port_num;//this switch's portnum
@@ -147,6 +154,7 @@ int main(int argc, char const *argv[])
 	{
 		pthread_join(tid[i],NULL);
 	}
+	pthread_cond_destroy(&registered);//destroy conditional signal
 	pthread_mutex_destroy(&swb_mutex);//destroy mutex
 	pthread_rwlock_destroy(&file_lock);//destroy file_lock
 	printf("ALL THREADS EXITED --- DONE\n");
@@ -154,6 +162,30 @@ int main(int argc, char const *argv[])
 	return 0;
 }
 
+//************
+	//receiver 
+		//initially
+			//block for REGISTER_RESPONSE
+				//copy neighbor_id
+					//as do this check if any match 
+				//copy active_flags
+				//copy host
+				//copy port
+				//send unblock to sender
+
+		//LOOP:
+
+		//receive TOPOLOGY_UPDATE
+			//copy routing table into my local routing table
+
+		//receives KEEP_ALIVE from switch
+			//get struct lock
+			//last_kalive[switchID] = time()
+			//if(active_flag[switchID] == FALSE)
+				//send_topo_update = TRUE;//sender clears
+				//active_flag[switchID] = TRUE;
+			//release struct lock
+//************
 void * receiver (void * param){
 	//vars
 	int my_tid = pthread_self();//thread ID
@@ -186,6 +218,13 @@ void * receiver (void * param){
 
 	//END UDP SETUP
 
+	//block for REGISTER_RESPONSE
+
+	//once received
+	pthread_mutex_lock(&params.swb_mutex);
+	pthread_cond_signal(&params.registered);//tell sender thread we have finished registration with server
+	pthread_mutex_unlock(&params.swb_mutex);
+
 	//print received data to stdout and log file
 	//if((file=fopen(params.file_name,"a")) == NULL)//open to append
 	//	exit(-4);
@@ -194,13 +233,43 @@ void * receiver (void * param){
 	rcvbuffer[bytes_received]='\0';
 	fprintf(stdout, "%s\n", rcvbuffer);
 	}
-	//CAREFUL recvfrom resets server_addr every time, figure out how to repeatedly receive
+	
 
 	close(udp_fd);
 	//fclose(file);
 	return 0;
 }
 
+
+//************
+	//sender = transmitter
+		//initially
+			//send REGISTER_REQUEST
+				//fill sender_id
+				//fill host
+				//fill port
+				//send to server
+		
+		//block until receiver thread signals REGISTER_RESPONSE has been received
+	
+		//LOOP:
+
+			//get struct lock
+			//if ((current_time() - last_kalive[switchIDs] >= m*k)& active_flag[switchID]=TRUE) //FOR ALL SWITCHIDs
+				//send_topo_update = TRUE;
+				//active_flag[switchID] = FALSE; //that way will not send topology update again if switch is still dead
+			//if (send_topo_update == TRUE) //***HANDLES switches that have died (sig from > m*k) or come back alive (sig from receiver)
+				//send TOPOLOGY_UPDATE to controller
+				//send_topo_update = FALSE;//clear flag
+			//if (current_time() - my_last_kalive_sent)
+				//send kalives to all "connected to" switches 
+				//do not send kalives to switches who are marked link_alive = FALSE or negatvie
+				//my_last_kalive_sent = time()
+			//release struct lock
+			//sleep(trans_slp_intrv);//(tenth second);don't need to constantly checking switches are dead, several times per second will do
+			//OR pthread_yield();//should work, gives receive a chance to run, but not much sleeping
+
+//************
 void * transmitter (void * param){
 	//variable for last transmit
 	//if current time - last transmit >= to K,
@@ -242,6 +311,15 @@ void * transmitter (void * param){
 	memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);//dest to send to for sender/transmitter thread
 	server_addr.sin_port = htons(params.dest_port);//port number to send to	
 	
+	//UDP setup done
+
+	//send REGISTER_REQUEST
+
+	//block until receiver tells me REGISTER_RESPONE received
+	pthread_mutex_lock(&params.swb_mutex);
+	pthread_cond_wait(&params.registered,&params.swb_mutex);
+	pthread_mutex_unlock(&params.swb_mutex);
+
 	//get input from command line
 	while(1){
 		fgets(sendbuffer,rcv_buff_size,stdin);
@@ -257,30 +335,7 @@ void * transmitter (void * param){
 	return 0;
 }
 
-//********************
-
-	//receiver receives KEEP_ALIVE from switch
-		//last_kalive = time()
-		//if(active_flag[switchID] == FALSE)
-			//send_topo_update = TRUE;//sender clears
-			//active_flag[switchID] = TRUE;
-	//sender
-		//get struct lock
-		//if ((current_time() - last_kalive[switchIDs] >= m*k)& active_flag[switchID]=TRUE) //FOR ALL SWITCHIDs
-			//send_topo_update = TRUE;
-			//active_flag[switchID] = FALSE; //that way will not send topology update again if switch is still dead
-		//if (send_topo_update == TRUE) //***HANDLES switches that have died (sig from > m*k) or come back alive (sig from receiver)
-			//send TOPOLOGY_UPDATE to controller
-			//send_topo_update = FALSE;//clear flag
-		//if (current_time() - my_last_kalive_sent)
-			//send kalives to all "connected to" switches 
-			//do not send kalives to switches who are marked link_alive = FALSE or negatvie
-			//my_last_kalive_sent = time()
-		//release struct lock
-		//sleep(tenth second);
-
-
-
+//***************
 //create shared memory neighbors/routing table structure for receive thread to update, and send thread to read from
 //main will set flag to indicate whether a linkID has been marked dead by command line input
 //threads will lock on properties structure:
