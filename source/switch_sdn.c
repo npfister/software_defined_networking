@@ -245,8 +245,7 @@ void * receiver (void * param){
 	//UP AND RUNNING PACKET RECEIVING
 	while(1){
 	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
-	rcvbuffer[bytes_received]='\0';
-	fprintf(stdout, "%s\n", rcvbuffer);
+	process_packet(rcvbuffer, bytes_received, params.file_lock, file);
 	}
 	
 
@@ -397,6 +396,7 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 			//correct fix link_alive
 			int temp_last_kalive[MAX_NEIGHBORS];
 			memcpy(temp_last_kalive,switchboard.last_kalive,sizeof(switchboard.last_kalive));//fill temp array
+			
 			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
 				//set time
 				switch_board.last_kalive[i] = curr_time;
@@ -430,10 +430,11 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 			}
 			keep_alive_t * k_alive;
 			k_alive = &rcvbuffer[1];
-
+			//find sender in arrays, reset their timestamp and active status
 			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
 				if(switch_board.neighbor_id[i] == k_alive->sender_id){
 					switch_board.last_kalive[i] = curr_time;
+					switch_board.active_flag[i] = 1;
 					break;
 				}
 
