@@ -419,6 +419,9 @@ void * receiver (void * param){
 	int udp_fd, bytes_received, serverlength;
 	struct sockaddr_in server_addr;
 	char rcvbuffer[rcv_buff_size];
+  
+  //Message vars
+  nc_message_t message;
 	
 	//SETUP UDP
 	//get socket file descriptor
@@ -443,10 +446,15 @@ void * receiver (void * param){
 	//print received data to stdout and log file
 	//if((file=fopen(params.file_name,"a")) == NULL)//open to append
 	//	exit(-4);
+	
+  // host and port are ignored in receive queue
+	message.port = 0;
+  message.host = 0;
 	while(1){
-	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
-	rcvbuffer[bytes_received]='\0';
-	fprintf(stdout, "%s\n", rcvbuffer);
+	  bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
+    message.size = bytes_received;
+    memcpy(message.data, rcvbuffer, bytes_received);
+    enqueue(&rq_lock, rcv_queue, message, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
 	}
 	//CAREFUL recvfrom resets server_addr every time, figure out how to repeatedly receive
 
@@ -477,6 +485,9 @@ void * transmitter (void * param){
 	char sendbuffer[rcv_buff_size];
 	struct in_addr **dest_addresses;
 
+  //message vars
+  nc_message_t message;
+
 	//SETUP UDP
 	//get socket file descriptor
 	if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) //UDP
@@ -490,21 +501,26 @@ void * transmitter (void * param){
 	dest_addresses = (struct in_addr **) server->h_addr_list;
 	printf("%s\n", inet_ntoa(*dest_addresses[0]));
 
-	//fill sockaddr_in
-	memset(&server_addr, 0x00, sizeof(struct sockaddr_in));
-	server_addr.sin_family = AF_INET;
-	memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);//dest to send to for sender/transmitter thread
-	server_addr.sin_port = htons(params.dest_port);//port number to send to	
 	
 	//get input from command line
 	while(1){
-	fgets(sendbuffer,rcv_buff_size,stdin);
-	serverlength = sizeof(server_addr);
-	bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
-	if(bytes_sent < 0){
-		printf("sendto failed\n");
-		exit(-7);
-	}
+    do {
+      message = dequeue(&sq_lock, send_queue, &sq_head, &sq_tail, SEND_QUEUE_SIZE);
+    } while (message.size == 0);
+
+	  //fill sockaddr_in
+	  memset(&server_addr, 0x00, sizeof(struct sockaddr_in));
+	  server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = message.host; 
+	  server_addr.sin_port = message.port;
+    memcpy(sendbuffer, message.data, message.size);	
+
+	  serverlength = sizeof(server_addr);
+	  bytes_sent= sendto(udp_fd, sendbuffer, message.size,0, (struct sockaddr *) &server_addr,serverlength);
+	  if(bytes_sent < 0){
+	  	printf("sendto failed\n");
+	  	exit(-7);
+	  }
 	}
 	close(udp_fd);
 
