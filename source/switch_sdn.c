@@ -33,6 +33,7 @@
 
 void * receiver (void * param);
 void * transmitter (void * param);
+void process_packet (char * rcvbuffer, int bytes_received, pthread_rwlock_t log_lock, FILE * file);
 
 //struct to pass multiple things to entry function
 typedef struct params params_t;
@@ -83,7 +84,7 @@ int main(int argc, char const *argv[])
 
 	//INITIALIZATIONS
 	log_level=0;//default to logging everthing but keepalives
-	my_swID = (unsigned char) 
+
 	for(i=0,i<MAX_NEIGHBORS,i++){
 		switch_board.last_kalive[i]= -1;//indicate that a kalive for this neighbor has not been received
 		switch_board.neighbor_id[i]= -1;//invalid entry
@@ -110,9 +111,11 @@ int main(int argc, char const *argv[])
 					//just put switchID in link alive,
 					//correct when you get neighbors after register response
 					switch_board.link_alive[i]= (unsigned char) atoi(optarg);//put switchID in array
+					break;
 				}
 				case 'i': {
 					log_level=1;//will cause logging of in/out keepalives also
+					break;
 				}
 				default:
 					break;
@@ -191,13 +194,16 @@ void * receiver (void * param){
 	int my_tid = pthread_self();//thread ID
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
-	//FILE *file;//log file
+	FILE *file;//log file
 	
 	//UDP vars
 	int udp_fd, bytes_received, serverlength;
 	struct sockaddr_in server_addr;
 	char rcvbuffer[rcv_buff_size];
 	
+	//control network packet type local temp vars
+	//pack_t ptype;
+
 	//SETUP UDP
 	//get socket file descriptor
 	if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) //UDP
@@ -218,25 +224,33 @@ void * receiver (void * param){
 
 	//END UDP SETUP
 
+	//open log file
+	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		exit(-4);
+
 	//block for REGISTER_RESPONSE
+	pack_t ptype;
+	ptype=ROUTE_UPDATE;//init to anything other than 1st packet we're waiting for: REGISTER_RESPONSE
+	while(ptype != REGISTER_RESPONSE){
+		bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
+		ptype = (int) rcvbuffer[0];
+	}
+	process_packet(rcvbuffer, bytes_received, params.file_lock, file);//will copy packet into correct struct 
 
 	//once received
 	pthread_mutex_lock(&params.swb_mutex);
 	pthread_cond_signal(&params.registered);//tell sender thread we have finished registration with server
 	pthread_mutex_unlock(&params.swb_mutex);
 
-	//print received data to stdout and log file
-	//if((file=fopen(params.file_name,"a")) == NULL)//open to append
-	//	exit(-4);
+	//UP AND RUNNING PACKET RECEIVING
 	while(1){
 	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
-	rcvbuffer[bytes_received]='\0';
-	fprintf(stdout, "%s\n", rcvbuffer);
+	process_packet(rcvbuffer, bytes_received, params.file_lock, file);
 	}
 	
 
 	close(udp_fd);
-	//fclose(file);
+	fclose(file);
 	return 0;
 }
 
@@ -245,6 +259,7 @@ void * receiver (void * param){
 	//sender = transmitter
 		//initially
 			//send REGISTER_REQUEST
+				//TO SEND PACKET_TYPE FILL STRUCT, CAST AS CHAR ARRAY, send for that pack type's length
 				//fill sender_id
 				//fill host
 				//fill port
@@ -262,7 +277,7 @@ void * receiver (void * param){
 				//send TOPOLOGY_UPDATE to controller
 				//send_topo_update = FALSE;//clear flag
 			//if (current_time() - my_last_kalive_sent)
-				//send kalives to all "connected to" switches 
+				//send kalives to all "connected to" switches and ROUTE_UPDATE to server
 				//do not send kalives to switches who are marked link_alive = FALSE or negatvie
 				//my_last_kalive_sent = time()
 			//release struct lock
@@ -355,3 +370,102 @@ void * transmitter (void * param){
 
 //**************
 
+//Auxilary Functions
+//used by receiver to process incoming packet into this switch's switch board
+void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_lock, FILE * file){
+	int i, j, curr_time;
+	ptype_t ptype;
+	ptype = (int) rcvbuffer[0];
+	curr_time = time();
+
+	switch(ptype){
+		case REGISTER_RESPONSE : {
+			if(sizeof(register_resp_t) != bytes_received){
+				printf("incorrect register_resp_t struct sent\n");
+				exit(-15);
+			}
+			register_resp_t * reg_res;
+			reg_res = &rcvbuffer[1];
+			//copy packet contents
+			my_swID = reg_res->switchID;
+			memcpy(switch_board.neighbor_id,reg_res->neighbor_id,sizeof(switch_board.neighbor_id));
+			memcpy(switch_board.active_flag,reg_res->active_flag,sizeof(switch_board.active_flag));
+			memcpy(switch_board.host       ,reg_res->host       ,sizeof(switch_board.host       ));
+			memcpy(switch_board.port       ,reg_res->port       ,sizeof(switch_board.port       ));
+			
+			//correct fix link_alive
+			int temp_last_kalive[MAX_NEIGHBORS];
+			memcpy(temp_last_kalive,switchboard.last_kalive,sizeof(switchboard.last_kalive));//fill temp array
+			
+			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
+				//set time
+				switch_board.last_kalive[i] = curr_time;
+				//fix link_alive array
+				//change switchID's in switchboard.link_alive[] to their relative-to-
+				//neighbor_ID correct array placement and be active 1 or dead 0,
+				for(j=0;(temp_last_kalive[j] != -1);j++){
+					if(switch_board.neighbor_id[i] = temp_last_kalive[j]){
+						switch_board.last_kalive[i] = 1;
+					}
+					else if(switch_board.last_kalive = 1){
+						//don't overwrite it
+						continue;
+					}
+					else{
+						switch_board.last_kalive[i] = 0;	
+					}
+				}
+			}
+			//log received packet
+			while(pthread_rwlock_trywrlock(&log_lock)){}
+			fprintf(file, "RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
+			//release file_lock
+			pthread_rwlock_unlock(&log_lock);
+			break;
+		}
+		case KEEP_ALIVE : {
+			if(sizeof(keep_alive_t) != bytes_received){
+				printf("incorrect keep_alive_t struct sent\n");
+				exit(-15);
+			}
+			keep_alive_t * k_alive;
+			k_alive = &rcvbuffer[1];
+			//find sender in arrays, reset their timestamp and active status
+			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
+				if(switch_board.neighbor_id[i] == k_alive->sender_id){
+					switch_board.last_kalive[i] = curr_time;
+					switch_board.active_flag[i] = 1;
+					break;
+				}
+
+			}
+			if(log_level){//if verbose logging is on
+				//log received packet
+				while(pthread_rwlock_trywrlock(&log_lock)){}
+				fprintf(file, "RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
+				//release file_lock
+				pthread_rwlock_unlock(&log_lock);		
+			}
+			break;
+		}
+		case ROUTE_UPDATE : {
+			if(sizeof(route_update_t) != bytes_received){
+				printf("incorrect route_update_t struct sent\n");
+				exit(-15);
+			}
+			memcpy(route_table,&rcvbuffer[1],MAX_SWITCHES);
+			
+			//log received packet
+			while(pthread_rwlock_trywrlock(&log_lock)){}
+			fprintf(file, "RCV -- ROUTE_UPDATE\n");
+			//release file_lock
+			pthread_rwlock_unlock(&log_lock);
+			break;
+		}
+		default : {
+			printf("unexpected packet type\n");
+			exit(-15);
+			break;
+		}
+	}
+}
