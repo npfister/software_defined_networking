@@ -301,20 +301,15 @@ int main(int argc, char *argv[])
           case REGISTER_REQUEST :
             memcpy(&reg_req_temp, &curr_message, sizeof(register_req_t));
             memset(&reg_resp_temp, 0, sizeof(register_resp_t));
-            // activate switch, assign id
-            for(i = 0; i < graph->size; i++) {
-              if(switch_info[i].port == -1)
-                break;
-            }
-            activate_switch(graph,i);
-            switch_info[i].port = reg_req_temp.port;
-            switch_info[i].host = reg_req_temp.host;
-            switch_info[i].alive_time = current_timestamp();
+
+            activate_switch(graph,reg_req_temp.switch_id);
+            switch_info[reg_req_temp.switch_id].port = reg_req_temp.port;
+            switch_info[reg_req_temp.switch_id].host = reg_req_temp.host;
+            switch_info[reg_req_temp.switch_id].alive_time = current_timestamp();
 
             // send neighbors
             reg_resp_temp.type = REGISTER_RESPONSE;
-            reg_resp_temp.switch_id = i;
-            fill_in_neighbors(&reg_resp_temp, graph, switch_info, i); 
+            fill_in_neighbors(&reg_resp_temp, graph, switch_info, reg_req_temp.switch_id); 
             for(i = 0; i < graph->size; i++) {
               if(reg_resp_temp.neighbor_id[i] == -1)
                 break;
@@ -377,7 +372,9 @@ int main(int argc, char *argv[])
       if(graph->adj_list[i].active){ // check active links 
         if((curr_time - switch_info[i].alive_time) > K_SEC*M_MISSES*1000) {
           // found dead switch 
-          deactivate_switch(graph, i); 
+          deactivate_switch(graph, i);
+          switch_info[i].port = -1;
+          switch_info[i].host = 0;
           send_route_update(graph, switch_info);
         }
       }
