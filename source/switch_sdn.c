@@ -34,14 +34,14 @@
 
 void * receiver (void * param);
 void * transmitter (void * param);
-void process_packet (char * rcvbuffer, int bytes_received, pthread_rwlock_t log_lock, FILE * file, pthread_mutex_t swb_mutex);
+void process_packet (char * rcvbuffer, int bytes_received, pthread_rwlock_t * log_lock, FILE * file, pthread_mutex_t * swb_mutex);
 
 //struct to pass multiple things to entry function
 typedef struct params params_t;
 struct params {
-	pthread_rwlock_t file_lock;
-	pthread_mutex_t swb_mutex;//lock for switch info struct
-	pthread_cond_t registered;//conditional wait for receiver to signal transmitter register response has come and time to start kalives
+	pthread_rwlock_t * file_lock;
+	pthread_mutex_t * swb_mutex;//lock for switch info struct
+	pthread_cond_t * registered;//conditional wait for receiver to signal transmitter register response has come and time to start kalives
 	char file_name[log_size];//log file name
 	int port_num;//this switch's port number
 	int ctrl_port;//server port number
@@ -61,6 +61,7 @@ struct sw_info {
 
 //global vars
 unsigned int  my_ipaddr;
+unsigned char have_registered;//predicate for registration communication from receiver to transmitter
 unsigned char my_swID;//this switch's ID
 unsigned char log_level;//0 = minimal, anything else = log all in/out keepalive messages
 
@@ -89,6 +90,8 @@ int main(int argc, char *argv[])
 	//INITIALIZATIONS
 	log_level=0;//default to logging everthing but keepalives
 	my_swID = (char) atoi(argv[1]);
+	my_ipaddr = 0;//init, also predicate for wait_condition pthread_cond_wait
+	have_registered=0;//haven't gotten REGISTER_RESPONSE yet
 	switch_board.send_topup=0;
 	for(i=0;i<MAX_NEIGHBORS;i++){
 		switch_board.last_kalive[i]= -1;//indicate that a kalive for this neighbor has not been received
@@ -128,10 +131,10 @@ int main(int argc, char *argv[])
 
 	//CREATE THREADS
 	//receiver
-	params[receive].registered = registered;
-	params[receive].file_lock = file_lock;
-	params[receive].swb_mutex = swb_mutex;
-	params[receive].port_num = 1024 + (rand() % 500) + (time(NULL) % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
+	params[receive].registered = &registered;
+	params[receive].file_lock = &file_lock;
+	params[receive].swb_mutex = &swb_mutex;
+	params[receive].port_num = 1024 + 1;//REMOVE (rand() % 500) + (time(NULL) % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
 	params[receive].ctrl_port= atoi(argv[3]);//controller's portnum
 	strncpy(params[receive].serv_name,argv[2],serv_name_size);//will not buffer overflow
 
@@ -141,9 +144,9 @@ int main(int argc, char *argv[])
 	{printf("Error creating thread\n");	exit(-1);}
 
 	//transmitter
-	params[send].registered = registered;
-	params[send].file_lock  = file_lock;
-	params[send].swb_mutex = swb_mutex;
+	params[send].registered = &registered;
+	params[send].file_lock  = &file_lock;
+	params[send].swb_mutex = &swb_mutex;
 	params[send].port_num = params[receive].port_num;//this switch's portnum
 	params[send].ctrl_port= atoi(argv[3]);//controller's portnum
 	strncpy(params[send].serv_name,argv[2],serv_name_size);//will not buffer overflow
@@ -152,6 +155,7 @@ int main(int argc, char *argv[])
 	//create transmitter
 	if(pthread_create(&tid[send],NULL,transmitter,&params[send]))
 	{printf("Error creating thread\n");	exit(-9);}
+	
 
 	//THREADS DOING WORK   **********************************
 
@@ -225,10 +229,10 @@ void * receiver (void * param){
 		exit(-6);
 	}
 	//signal sender that my_ipaddr is filled out and now known
-	pthread_mutex_lock(&params.swb_mutex);
-	my_ipaddr = server_addr.sin_addr.s_addr;
-	pthread_cond_signal(&params.registered);//tell sender thread we have finished registration with server
-	pthread_mutex_unlock(&params.swb_mutex);
+	pthread_mutex_lock(params.swb_mutex);
+	my_ipaddr = 12846491;//temp fix server_addr.sin_addr.s_addr;
+	pthread_cond_signal(params.registered);//tell sender thread we have finished registration with server
+	pthread_mutex_unlock(params.swb_mutex);
 
 	//END UDP SETUP
 
@@ -246,9 +250,10 @@ void * receiver (void * param){
 	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex);//will copy packet into correct struct 
 
 	//once received
-	pthread_mutex_lock(&params.swb_mutex);
-	pthread_cond_signal(&params.registered);//tell sender thread we have finished registration with server
-	pthread_mutex_unlock(&params.swb_mutex);
+	pthread_mutex_lock(params.swb_mutex);
+	have_registered=1;
+	pthread_cond_signal(params.registered);//tell sender thread we have finished registration with server
+	pthread_mutex_unlock(params.swb_mutex);
 
 	//UP AND RUNNING PACKET RECEIVING
 	while(1){
@@ -351,9 +356,11 @@ void * transmitter (void * param){
 	//populate sendbuffer
 	temp_regreq = (register_req_t *) sendbuffer;
 	temp_regreq->type = REGISTER_REQUEST;
-	pthread_mutex_lock(&params.swb_mutex);//wait for this machine's ip address
-	pthread_cond_wait(&params.registered,&params.swb_mutex);
-	pthread_mutex_unlock(&params.swb_mutex);
+	pthread_mutex_lock(params.swb_mutex);//wait for this machine's ip address
+	while(my_ipaddr == 0){//predicate to wait on, cond_wait does not guarentee no spurious wake ups
+		pthread_cond_wait(params.registered,params.swb_mutex);
+	}
+	pthread_mutex_unlock(params.swb_mutex);
 	temp_regreq->switch_id=my_swID;//from command line input
 	temp_regreq->host = my_ipaddr;//how get my host addr
 	temp_regreq->port = params.port_num;
@@ -369,21 +376,24 @@ void * transmitter (void * param){
 		exit(-21);
 	}
 
-	while(pthread_rwlock_trywrlock(&params.file_lock)){}
+	while(pthread_rwlock_trywrlock(params.file_lock)){}
 	fprintf(file, "SEND - REGISTER_REQUEST\n");
 	//release file_lock
-	pthread_rwlock_unlock(&params.file_lock);
+	printf("SEND - REGISTER_REQUEST\n");
+	pthread_rwlock_unlock(params.file_lock);
 	// END SENDING REGISTER_REQUEST
 
 	//block until receiver thread tells me REGISTER_RESPONE received
-	pthread_mutex_lock(&params.swb_mutex);
-	pthread_cond_wait(&params.registered,&params.swb_mutex);
-	pthread_mutex_unlock(&params.swb_mutex);
+	pthread_mutex_lock(params.swb_mutex);
+	while(have_registered == 0){
+		pthread_cond_wait(params.registered,params.swb_mutex);
+	}
+	pthread_mutex_unlock(params.swb_mutex);
 	my_last_kalive_sent = time(NULL) - K_SEC;//make KEEP_ALIVE get sent immediately after register response
 	//SEND KEEP_ALIVE,TOPOLOGY_UPDATE (s)
 	while(1){
 		//get struct lock
-		pthread_mutex_lock(&params.swb_mutex);
+		pthread_mutex_lock(params.swb_mutex);
 		curr_time = time(NULL);
 		//if ((current_time() - last_kalive[switchIDs] >= m*k)& active_flag[switchID]=TRUE) //FOR ALL SWITCHIDs
 			//send_topo_update = TRUE;
@@ -420,11 +430,12 @@ void * transmitter (void * param){
 					}
 				}
 			}
+
 			if(log_level){//if verbose logging is on
-				while(pthread_rwlock_trywrlock(&params.file_lock)){}
+				while(pthread_rwlock_trywrlock(params.file_lock)){}
 				fprintf(file, "SEND - KEEP_ALIVE\n");
 				//release file_lock
-				pthread_rwlock_unlock(&params.file_lock);		
+				pthread_rwlock_unlock(params.file_lock);		
 			}
 			my_last_kalive_sent = curr_time;
 		}
@@ -456,14 +467,14 @@ void * transmitter (void * param){
 				exit(-21);
 			}
 			
-			while(pthread_rwlock_trywrlock(&params.file_lock)){}
+			while(pthread_rwlock_trywrlock(params.file_lock)){}
 			fprintf(file, "SEND - TOPOLOGY_UPDATE\n");
 			//release file_lock
-			pthread_rwlock_unlock(&params.file_lock);
+			pthread_rwlock_unlock(params.file_lock);
 		}//END TOPOLOGY_UPDATE
 		
 		//release struct lock
-		pthread_mutex_unlock(&params.swb_mutex);
+		pthread_mutex_unlock(params.swb_mutex);
 		//yield transmit thread to receive thread -- reduces lock contention
 		//pthread_yield();		//is not a POSIX standard function using below instead
 		sched_yield();//POSIX standard thread yield function
@@ -498,7 +509,7 @@ void * transmitter (void * param){
 
 //Auxilary Functions
 //used by receiver to process incoming packet into this switch's switch board
-void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_lock, FILE * file, pthread_mutex_t swb_mutex){
+void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log_lock, FILE * file, pthread_mutex_t * swb_mutex){
 	int i, j, curr_time;
 	pack_t ptype;
 	ptype = (int) rcvbuffer[0];
@@ -514,7 +525,7 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 			reg_res = (register_resp_t *) &rcvbuffer[1];
 			//copy packet contents
 			//critical section
-			pthread_mutex_lock(&swb_mutex);
+			pthread_mutex_lock(swb_mutex);
 				//copy neighbor_id
 					//as do this check if any match 
 				//copy active_flags
@@ -550,12 +561,13 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				}
 			}
 			//end critical section
-			pthread_mutex_unlock(&swb_mutex);
+			pthread_mutex_unlock(swb_mutex);
 			//log received packet
-			while(pthread_rwlock_trywrlock(&log_lock)){}
+			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
+			printf("RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
 			//release file_lock
-			pthread_rwlock_unlock(&log_lock);
+			pthread_rwlock_unlock(log_lock);
 			break;
 		}
 		case KEEP_ALIVE : {
@@ -567,7 +579,7 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 			k_alive = (keep_alive_t *) &rcvbuffer[1];
 			//find sender in arrays, reset their timestamp and active status
 			//critical section
-			pthread_mutex_lock(&swb_mutex);
+			pthread_mutex_lock(swb_mutex);
 			//last_kalive[switchID] = time()
 			//if(active_flag[switchID] == FALSE)
 				//send_topo_update = TRUE;//sender clears
@@ -584,13 +596,14 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				}
 
 			}
-			pthread_mutex_unlock(&swb_mutex);
+			pthread_mutex_unlock(swb_mutex);
 			if(log_level){//if verbose logging is on
 				//log received packet
-				while(pthread_rwlock_trywrlock(&log_lock)){}
+				while(pthread_rwlock_trywrlock(log_lock)){}
 				fprintf(file, "RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
+				printf("RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
 				//release file_lock
-				pthread_rwlock_unlock(&log_lock);		
+				pthread_rwlock_unlock(log_lock);		
 			}
 			break;
 		}
@@ -600,15 +613,15 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				exit(-15);
 			}
 			//critical section
-			pthread_mutex_lock(&swb_mutex);
+			pthread_mutex_lock(swb_mutex);
 			//copy routing table into my local routing table
 			memcpy(route_table,&rcvbuffer[1],MAX_SWITCHES);
-			pthread_mutex_unlock(&swb_mutex);
+			pthread_mutex_unlock(swb_mutex);
 			//log received packet
-			while(pthread_rwlock_trywrlock(&log_lock)){}
+			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- ROUTE_UPDATE\n");
 			//release file_lock
-			pthread_rwlock_unlock(&log_lock);
+			pthread_rwlock_unlock(log_lock);
 			break;
 		}
 		default : {
