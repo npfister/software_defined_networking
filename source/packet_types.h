@@ -1,15 +1,17 @@
 #ifndef PACKET_TYPES_H
 #define PACKET_TYPES_H
 
-#define K_SEC     5
-#define M_MISSES  1
+
+#define K_SEC     5 //how often switches send keep alive messages
+#define M_MISSES  3 //number of missed keep alive messages before neighbors report a switch as dead
+#define SW_DIED (K_SEC * M_MISSES) //time after which a switch is dead and a topology update should be sent
 
 #define MAX_NEIGHBORS 16
 #define MAX_SWITCHES 32
 
 //enum for packet types
 typedef enum packet_types pack_t;
-enum {
+enum packet_types{
   REGISTER_REQUEST = 0,
   // s->c 
   // controller learns host/port info
@@ -26,7 +28,7 @@ enum {
   TOPOLOGY_UPDATE = 4
   // s->c
   // sends list of alive neighbors
-} packet_types;
+};
 
 typedef struct { 
   unsigned char type;
