@@ -1,8 +1,9 @@
 #ifndef PACKET_TYPES_H
 #define PACKET_TYPES_H
 
-#define K_SEC     5
-#define M_MISSES  3
+#define K_SEC     5 //how often switches send keep alive messages
+#define M_MISSES  3 //number of missed keep alive messages before neighbors report a switch as dead
+#define SW_DIED (K_SEC * M_MISSES) //time after which a switch is dead and a topology update should be sent
 
 #define MAX_NEIGHBORS 16
 #define MAX_SWITCHES 32

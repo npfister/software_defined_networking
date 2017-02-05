@@ -33,7 +33,7 @@
 
 void * receiver (void * param);
 void * transmitter (void * param);
-void process_packet (char * rcvbuffer, int bytes_received, pthread_rwlock_t log_lock, FILE * file);
+void process_packet (char * rcvbuffer, int bytes_received, pthread_rwlock_t log_lock, FILE * file, pthread_mutex_t swb_mutex);
 
 //struct to pass multiple things to entry function
 typedef struct params params_t;
@@ -42,12 +42,13 @@ struct params {
 	pthread_mutex_t swb_mutex;//lock for switch info struct
 	pthread_cond_t registered;//conditional wait for receiver to signal transmitter register response has come and time to start kalives
 	char file_name[log_size];//log file name
-	int port_num;//this server's port number
+	int port_num;//this switch's port number
 	int ctrl_port;//server port number
 	char serv_name[serv_name_size];
 };
 typedef struct sw_info switch_info_t;
 struct sw_info {
+	int send_topup;
 	int last_kalive[MAX_NEIGHBORS];//time() return signed
 	char neighbor_id[MAX_NEIGHBORS]; // -1 -> invalid entry
 	unsigned char active_flag[MAX_NEIGHBORS];//active high, switch is alive or dead
@@ -58,6 +59,7 @@ struct sw_info {
 
 
 //global vars
+unsigned int  my_ipaddr;
 unsigned char my_swID;//this switch's ID
 unsigned char log_level;//0 = minimal, anything else = log all in/out keepalive messages
 
@@ -84,7 +86,7 @@ int main(int argc, char const *argv[])
 
 	//INITIALIZATIONS
 	log_level=0;//default to logging everthing but keepalives
-
+	switch_board.send_topup=0;
 	for(i=0,i<MAX_NEIGHBORS,i++){
 		switch_board.last_kalive[i]= -1;//indicate that a kalive for this neighbor has not been received
 		switch_board.neighbor_id[i]= -1;//invalid entry
@@ -221,6 +223,11 @@ void * receiver (void * param){
 		printf("BIND FAILED\n");
 		exit(-6);
 	}
+	//signal sender that my_ipaddr is filled out and now known
+	pthread_mutex_lock(&params.swb_mutex);
+	my_ipaddr = server_addr.sin_addr.s_addr;
+	pthread_cond_signal(&params.registered);//tell sender thread we have finished registration with server
+	pthread_mutex_unlock(&params.swb_mutex);
 
 	//END UDP SETUP
 
@@ -235,7 +242,7 @@ void * receiver (void * param){
 		bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
 		ptype = (int) rcvbuffer[0];
 	}
-	process_packet(rcvbuffer, bytes_received, params.file_lock, file);//will copy packet into correct struct 
+	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex);//will copy packet into correct struct 
 
 	//once received
 	pthread_mutex_lock(&params.swb_mutex);
@@ -245,7 +252,7 @@ void * receiver (void * param){
 	//UP AND RUNNING PACKET RECEIVING
 	while(1){
 	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
-	process_packet(rcvbuffer, bytes_received, params.file_lock, file);
+	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex);
 	}
 	
 
@@ -296,9 +303,13 @@ void * transmitter (void * param){
 
 	//vars
 	int my_tid = pthread_self();//thread ID
+	int curr_time,i,my_last_kalive_sent;
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
-	//FILE *file;//log file
+	FILE *file;//log file
+	//open log file
+	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		exit(-4);
 	
 	//UDP vars
 	int udp_fd, bytes_sent,serverlength;
@@ -313,40 +324,135 @@ void * transmitter (void * param){
     	exit(-2);//UDP FAILED
 	
 	//retrieve address from given hostname
-	if ((server = gethostbyname(params.serv_name)) == NULL){
+	/*if ((server = gethostbyname(params.serv_name)) == NULL){
 		printf("SERVER: %s not found", params.serv_name);
 		exit(-3);
-	}
-	dest_addresses = (struct in_addr **) server->h_addr_list;
-	printf("%s\n", inet_ntoa(*dest_addresses[0]));
+	}*/
+	//print ip address
+	//dest_addresses = (struct in_addr **) server->h_addr_list;
+	//printf("%s\n", inet_ntoa(*dest_addresses[0]));
 
 	//fill sockaddr_in
 	memset(&server_addr, 0x00, sizeof(struct sockaddr_in));
 	server_addr.sin_family = AF_INET;
-	memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);//dest to send to for sender/transmitter thread
-	server_addr.sin_port = htons(params.dest_port);//port number to send to	
+	//memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);//dest to send to for sender/transmitter thread
+	//server_addr.sin_port = htons(params.dest_port);//port number to send to	
 	
 	//UDP setup done
 
+	//sendable packet type pointers
+	keep_alive_t * temp_kalive;
+	topology_update_t * temp_topup;
+	register_resp_t * temp_regresp;
+
 	//send REGISTER_REQUEST
+	memset(sendbuffer,0x00, sizeof(sendbuffer));//clear buffer
+	//populate sendbuffer
+	temp_regresp = (register_resp_t *) sendbuffer;
+	temp_regresp->type = REGISTER_REQUEST;
+	pthread_mutex_lock(&params.swb_mutex);//wait for this machine's ip address
+	pthread_cond_wait(&params.registered,&params.swb_mutex);
+	pthread_mutex_unlock(&params.swb_mutex);
+	temp_regresp->host = my_ipaddr;//how get my host addr
+	temp_regresp->port = params.port_num;
+	//assemble server_addr
+	if ((server = gethostbyname(params.serv_name)) == NULL){printf("SERVER: %s not found", params.serv_name);exit(-20);}
+	memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);
+	server_addr.sin_port = htons(params.ctrl_port);
+	//send packet
+	serverlength = sizeof(server_addr);
+	bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+	if(bytes_sent < 0){
+		printf("sendto failed\n");
+		exit(-21);
+	}
 
 	//block until receiver tells me REGISTER_RESPONE received
 	pthread_mutex_lock(&params.swb_mutex);
 	pthread_cond_wait(&params.registered,&params.swb_mutex);
 	pthread_mutex_unlock(&params.swb_mutex);
-
-	//get input from command line
+	my_last_kalive_sent = time(NULL) - K_SEC;//make KEEP_ALIVE get sent immediately after register response
+	//SEND KEEP_ALIVE,TOPOLOGY_UPDATE (s)
 	while(1){
-		fgets(sendbuffer,rcv_buff_size,stdin);
-		serverlength = sizeof(server_addr);
-		bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
-		if(bytes_sent < 0){
-			printf("sendto failed\n");
-			exit(-7);
-		}
-	}
-	close(udp_fd);
+		//get struct lock
+		pthread_mutex_lock(&params.swb_mutex);
+		curr_time = time(NULL);
+		//if ((current_time() - last_kalive[switchIDs] >= m*k)& active_flag[switchID]=TRUE) //FOR ALL SWITCHIDs
+			//send_topo_update = TRUE;
+			//active_flag[switchID] = FALSE; //that way will not send topology update again if switch is still dead
+		for(i=0;(switch_board.neighbor_id[i]!=-1);i++){
+			if(((curr_time - switch_board.last_kalive[i]) >= SW_DIED) & (switch_board.active_flag[i] == 1) ){
+				switch_board.active_flag[i] = 0;
+				switch_board.send_topup = 1;//switch has died, therefore send TOPOLOGY UPDATE
+			}	
+		}//END CHECKING FOR DEAD SWITCHES - CALCULATING WHETHER TOPOLOGY_UPDATE NEED BE SENT
 
+		//if (current_time() - my_last_kalive_sent >= K_SEC)
+			//send kalives to all "connected to" switches
+			//send_topup = 1 ROUTE_UPDATE to server
+			//do not send kalives to switches who are marked link_alive = FALSE or negatvie
+			//my_last_kalive_sent = time()
+		if((curr_time - my_last_kalive_sent) >= K_SEC){//send keep_alive to all switches with alive links
+			for(i=0;(switch_board.neighbor_id[i]!=-1);i++){
+				if(switch_board.link_alive[i]==1){//don't send keep_alivess to non-dead switches
+					memset(sendbuffer,0x00, sizeof(sendbuffer));//clear buffer
+					//populate sendbuffer
+					temp_kalive = (keep_alive_t *) sendbuffer;
+					temp_kalive->type = KEEP_ALIVE;
+					temp_kalive->sender_id = my_swID;
+					//assemble server_addr
+					server_addr.sin_addr.s_addr = htonl(switch_board.host[i]);
+					server_addr.sin_port = htons(params.ctrl_port);
+					//send packet
+					serverlength = sizeof(server_addr);
+					bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+					if(bytes_sent < 0){
+						printf("sendto failed\n");
+						exit(-21);
+					}
+				}
+			}
+			my_last_kalive_sent = curr_time;
+		}
+
+		//***HANDLES sending TOPOLOGY UPDATE for:
+			//switches that have died (sig from > m*k) or 
+			//come back alive (send_topup set from receiver thread) or
+			//every K_SEC period
+		if (switch_board.send_topup == 1){ 			//send TOPOLOGY_UPDATE to controller
+			switch_board.send_topup = 0;//clear flag
+
+			memset(sendbuffer,0x00, sizeof(sendbuffer));//clear buffer
+			//populate sendbuffer
+			temp_topup = (topology_update_t *) sendbuffer;
+			temp_topup->type = TOPOLOGY_UPDATE;
+			temp_topup->sender_id = my_swID;
+			memcpy(temp_topup->neighbor_id,switch_board.neighbor_id,sizeof(switch_board.neighbor_id));
+			memcpy(temp_topup->active_flag,switch_board.active_flag,sizeof(switch_board.active_flag));
+			
+			//assemble server_addr
+			if ((server = gethostbyname(params.serv_name)) == NULL){printf("SERVER: %s not found", params.serv_name);exit(-20);}
+			memcpy(&server_addr.sin_addr.s_addr, server->h_addr,server->h_length);
+			server_addr.sin_port = htons(params.ctrl_port);
+			//send packet
+			serverlength = sizeof(server_addr);
+			bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+			if(bytes_sent < 0){
+				printf("sendto failed\n");
+				exit(-21);
+			}
+		}//END TOPOLOGY_UPDATE
+		
+		//release struct lock
+		pthread_mutex_unlock(&params.swb_mutex);
+		//yield thread to receive thread -- reduces lock contention
+		pthread_yield();		
+	}
+
+	//catch and handle SIGINT?
+	//cleanup
+	close(udp_fd);
+	fclose(file);
 	return 0;
 }
 
@@ -372,7 +478,7 @@ void * transmitter (void * param){
 
 //Auxilary Functions
 //used by receiver to process incoming packet into this switch's switch board
-void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_lock, FILE * file){
+void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_lock, FILE * file, pthread_mutex_t swb_mutex){
 	int i, j, curr_time;
 	ptype_t ptype;
 	ptype = (int) rcvbuffer[0];
@@ -385,9 +491,17 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				exit(-15);
 			}
 			register_resp_t * reg_res;
-			reg_res = &rcvbuffer[1];
+			reg_res = (register_resp_t *) &rcvbuffer[1];
 			//copy packet contents
-			my_swID = reg_res->switchID;
+			//critical section
+			pthread_mutex_lock(&swb_mutex);
+				//copy neighbor_id
+					//as do this check if any match 
+				//copy active_flags
+				//copy host
+				//copy port
+
+			my_swID = reg_res->switch_id;
 			memcpy(switch_board.neighbor_id,reg_res->neighbor_id,sizeof(switch_board.neighbor_id));
 			memcpy(switch_board.active_flag,reg_res->active_flag,sizeof(switch_board.active_flag));
 			memcpy(switch_board.host       ,reg_res->host       ,sizeof(switch_board.host       ));
@@ -416,6 +530,8 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 					}
 				}
 			}
+			//end critical section
+			pthread_mutex_unlock(&swb_mutex);
 			//log received packet
 			while(pthread_rwlock_trywrlock(&log_lock)){}
 			fprintf(file, "RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
@@ -429,16 +545,27 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				exit(-15);
 			}
 			keep_alive_t * k_alive;
-			k_alive = &rcvbuffer[1];
+			k_alive = (keep_alive_t *) &rcvbuffer[1];
 			//find sender in arrays, reset their timestamp and active status
+			//critical section
+			pthread_mutex_lock(&swb_mutex);
+			//last_kalive[switchID] = time()
+			//if(active_flag[switchID] == FALSE)
+				//send_topo_update = TRUE;//sender clears
+				//active_flag[switchID] = TRUE;
+			//release struct lock
 			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
 				if(switch_board.neighbor_id[i] == k_alive->sender_id){
 					switch_board.last_kalive[i] = curr_time;
+					if((switch_board.active_flag[i]==0) & (switch_board.link_alive[i]==1)){//switch has come back to life and link is not dead (how we're modeling dead links)
+						switch_board.send_topup=1;
+					}
 					switch_board.active_flag[i] = 1;
 					break;
 				}
 
 			}
+			pthread_mutex_unlock(&swb_mutex);
 			if(log_level){//if verbose logging is on
 				//log received packet
 				while(pthread_rwlock_trywrlock(&log_lock)){}
@@ -453,8 +580,11 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t log_l
 				printf("incorrect route_update_t struct sent\n");
 				exit(-15);
 			}
+			//critical section
+			pthread_mutex_lock(&swb_mutex);s
+			//copy routing table into my local routing table
 			memcpy(route_table,&rcvbuffer[1],MAX_SWITCHES);
-			
+			pthread_mutex_unlock(&swb_mutex);
 			//log received packet
 			while(pthread_rwlock_trywrlock(&log_lock)){}
 			fprintf(file, "RCV -- ROUTE_UPDATE\n");
