@@ -1,6 +1,7 @@
 #ifndef PACKET_TYPES_H
 #define PACKET_TYPES_H
 
+
 #define K_SEC     5 //how often switches send keep alive messages
 #define M_MISSES  3 //number of missed keep alive messages before neighbors report a switch as dead
 #define SW_DIED (K_SEC * M_MISSES) //time after which a switch is dead and a topology update should be sent
@@ -31,13 +32,13 @@ enum {
 
 typedef struct { 
   unsigned char type;
+  unsigned char switch_id;
   unsigned int host; 
   unsigned int port;
 }register_req_t;
 
 typedef struct { 
   unsigned char type;
-  unsigned char switch_id;
   char neighbor_id[MAX_NEIGHBORS]; // -1 -> invalid entry
   unsigned char active_flag[MAX_NEIGHBORS];
   unsigned char host[MAX_NEIGHBORS];
@@ -51,7 +52,7 @@ typedef struct {
 
 typedef struct { 
   unsigned char type;
-  unsigned char route_table[MAX_SWITCHES];
+  char route_table[MAX_SWITCHES];
 }route_update_t;
 
 typedef struct { 
