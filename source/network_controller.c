@@ -80,7 +80,7 @@ FILE * file;
 
 // ************** FUNCTION DEFINITIONS *****
 
-void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
+void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, int link_active) {
   
   register_req_t *reg_req = NULL;
   register_resp_t *reg_resp = NULL;
@@ -123,8 +123,13 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
           fprintf(file, "\nController: Logging Topology Update with Switch Down\n");
           fprintf(file, "Controller: Switch down s: %d\n", switch_d);
         } else { // link down
-          fprintf(file, "\nController: Logging Topology Update with Link Down\n");
-          fprintf(file, "Controller: Link down betwween s: %d and s: %d\n", link_d0, link_d1);
+          if(link_active) {
+            fprintf(file, "\nController: Logging Topology Update with Link Activated\n");
+            fprintf(file, "Controller: Link up betwween s: %d and s: %d\n", link_d0, link_d1);
+          } else {
+            fprintf(file, "\nController: Logging Topology Update with Link Down\n");
+            fprintf(file, "Controller: Link down betwween s: %d and s: %d\n", link_d0, link_d1);
+          }
         }
         break;
 
@@ -263,7 +268,7 @@ void send_route_update(graph_t *graph, switch_info_t *switch_info) {
       memcpy(curr_message.data, &rup, sizeof(route_update_t)); 
       curr_message.host = switch_info[i].host;
       curr_message.port = switch_info[i].port;
-      log_event(ROUTE_UPDATE, (void*)&rup, -1, -1, i);
+      log_event(ROUTE_UPDATE, (void*)&rup, -1, -1, i, 0);
       while (!enqueue(&sq_lock, send_queue, curr_message, &sq_head, &sq_tail, SEND_QUEUE_SIZE)) {}
       free(table);
     }
@@ -380,8 +385,30 @@ int main(int argc, char *argv[])
     curr_message.host = reg_req_temp.host;
     curr_message.port = reg_req_temp.port;
     while (!enqueue(&rq_lock, rcv_queue, curr_message, &rq_head, &rq_tail, RCV_QUEUE_SIZE)) {}
-  }*/
-  
+  }
+  // Send topology updates after two seconds
+  memset(&topology_update_temp, 0, sizeof(topology_update_t));
+  topology_update_temp.type = TOPOLOGY_UPDATE;
+  topology_update_temp.sender_id = 2;
+  topology_update_temp.neighbor_id[0] = 5;
+  topology_update_temp.active_flag[0] = 1;
+  topology_update_temp.neighbor_id[1] = 1;
+  topology_update_temp.active_flag[1] = 1;
+  topology_update_temp.neighbor_id[2] = -1;
+  curr_message.size = sizeof(topology_update_t);
+  memcpy(curr_message.data, &topology_update_temp, sizeof(topology_update_t)); 
+  while (!enqueue(&rq_lock, rcv_queue, curr_message, &rq_head, &rq_tail, RCV_QUEUE_SIZE)) {}
+ 
+  topology_update_temp.sender_id = 0;
+  topology_update_temp.neighbor_id[0] = 1;
+  topology_update_temp.active_flag[0] = 1;
+  topology_update_temp.neighbor_id[1] = 3;
+  topology_update_temp.active_flag[1] = 1;
+  topology_update_temp.neighbor_id[2] = -1;
+  curr_message.size = sizeof(topology_update_t);
+  memcpy(curr_message.data, &topology_update_temp, sizeof(topology_update_t)); 
+  while (!enqueue(&rq_lock, rcv_queue, curr_message, &rq_head, &rq_tail, RCV_QUEUE_SIZE)) {}
+  */
  
   // MAIN SDN CONTROLLER LOOP 
   while (1) {
@@ -391,6 +418,7 @@ int main(int argc, char *argv[])
       
       if(curr_message.size != 0) {
         curr_message_type = curr_message.data[0];
+
         switch (curr_message_type) {
 
           case REGISTER_REQUEST :
@@ -402,7 +430,7 @@ int main(int argc, char *argv[])
             switch_info[reg_req_temp.switch_id].host = reg_req_temp.host;
             switch_info[reg_req_temp.switch_id].alive_time = current_timestamp();
 
-            log_event(REGISTER_REQUEST, (void*)&reg_req_temp, -1, -1, -1);
+            log_event(REGISTER_REQUEST, (void*)&reg_req_temp, -1, -1, -1, 0);
 
             // send neighbors
             reg_resp_temp.type = REGISTER_RESPONSE;
@@ -419,7 +447,7 @@ int main(int argc, char *argv[])
             memcpy(curr_message.data, &reg_resp_temp, sizeof(register_resp_t)); 
             curr_message.host = reg_req_temp.host;
             curr_message.port = reg_req_temp.port;
-            log_event(REGISTER_RESPONSE, (void*)&reg_resp_temp, -1, -1, -1);
+            log_event(REGISTER_RESPONSE, (void*)&reg_resp_temp, -1, -1, -1, 0);
             while (!enqueue(&sq_lock, send_queue, curr_message, &sq_head, &sq_tail, SEND_QUEUE_SIZE)) {}
 
             // send routing tables
@@ -447,7 +475,8 @@ int main(int argc, char *argv[])
                 if( link_temp->active != topology_update_temp.active_flag[i]) {
                   needs_update = 1;
                   link_temp->active = topology_update_temp.active_flag[i];
-                  log_event(TOPOLOGY_UPDATE, NULL, topology_update_temp.sender_id,i, -1);
+                  log_event(TOPOLOGY_UPDATE, NULL, topology_update_temp.sender_id,topology_update_temp.neighbor_id[i],
+                    -1, topology_update_temp.active_flag[i]);
                 }
               }
             }
@@ -473,7 +502,7 @@ int main(int argc, char *argv[])
           deactivate_switch(graph, i);
           switch_info[i].port = -1;
           switch_info[i].host = 0;
-          log_event(TOPOLOGY_UPDATE, NULL, -1,-1, i);
+          log_event(TOPOLOGY_UPDATE, NULL, -1,-1, i, 0);
           send_route_update(graph, switch_info);
         }
       }
@@ -568,18 +597,11 @@ void * receiver (void * param){
 
 
 void * transmitter (void * param){
-	//vars
-	//int my_tid = pthread_self();//thread ID
-	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
-	params_t params = *params_ptr;
-	//FILE *file;//log file
 	
 	//UDP vars
 	int udp_fd, bytes_sent,serverlength;
-	struct hostent * server;
 	struct sockaddr_in server_addr;
 	char sendbuffer[rcv_buff_size];
-	struct in_addr **dest_addresses;
 
   //message vars
   nc_message_t message;
