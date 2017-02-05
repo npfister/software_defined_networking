@@ -11,7 +11,7 @@
 
 //enum for packet types
 typedef enum packet_types pack_t;
-enum {
+enum packet_types{
   REGISTER_REQUEST = 0,
   // s->c 
   // controller learns host/port info
@@ -28,7 +28,7 @@ enum {
   TOPOLOGY_UPDATE = 4
   // s->c
   // sends list of alive neighbors
-} packet_types;
+};
 
 typedef struct { 
   unsigned char type;
