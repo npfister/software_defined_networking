@@ -24,7 +24,7 @@
 #define send 1 //thread 1 is sender
 #define log_size 10 //num chars in log file name
 #define serv_name_size 20 //max num chars in server name
-#define rcv_buff_size 255 //max UDP message size
+#define rcv_buff_size 256 //max UDP message size
 
 #define RCV_QUEUE_SIZE 32
 #define SEND_QUEUE_SIZE 32
@@ -87,7 +87,12 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
   route_update_t *r_update = NULL;
   int i = 0;
 
+
+
   while(pthread_rwlock_trywrlock(&file_lock)){} 
+	if((file=fopen("test.txt","a")) == NULL)
+		exit(-5);
+
 
   if(file != NULL) {
 
@@ -108,6 +113,7 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
           fprintf(file, "Controller: Neighbor_id: %d\nactive: %d\nhost:%d\nport:%d\n",
             reg_resp->neighbor_id[i], reg_resp->active_flag[i], reg_resp->host[i],
             reg_resp->port[i]);
+          i++;
         }
         break;
 
@@ -128,9 +134,10 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
       
         fprintf(file, "\nController: Logging Route Update Message\n");
         fprintf(file, "Controller: Switch: %d\n", switch_d);
-        while(r_update->route_table[i] != -1 && i < MAX_NEIGHBORS) {
+        while(r_update->route_table[i] != -2 && i < MAX_NEIGHBORS) {
           fprintf(file, "Controller: To switch: %d\nNext Hop: %d\n",
             i, r_update->route_table[i]);
+          i++;
         }  
         break;
     
@@ -141,7 +148,8 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d) {
   } else {
     printf("Error: Invalid file descriptor sent to logging function.\n");
   }
-
+  
+  fclose(file);
   pthread_rwlock_unlock(&file_lock);
 
 }
@@ -204,7 +212,7 @@ void fill_in_neighbors(register_resp_t *resp, graph_t *graph, switch_info_t *swi
   while(curr_ptr != NULL) {
     if(switch_info[curr_ptr->vertex_conn].port != -1) { //is registered
       resp->neighbor_id[j] = curr_ptr->vertex_conn;
-      resp->neighbor_id[j] = graph->adj_list[curr_ptr->vertex_conn].active;
+      resp->active_flag[j] = graph->adj_list[curr_ptr->vertex_conn].active;
       j++;
     }
     curr_ptr = curr_ptr->next;
@@ -216,8 +224,8 @@ void fill_in_neighbors(register_resp_t *resp, graph_t *graph, switch_info_t *swi
       while(curr_ptr != NULL) {
         if(curr_ptr->vertex_conn == switch_id) {
           if(switch_info[i].port != -1) { //is registered   
-            resp->neighbor_id[j] = curr_ptr->vertex_conn;
-            resp->neighbor_id[j] = graph->adj_list[i].active;
+            resp->neighbor_id[j] = i;
+            resp->active_flag[j] = graph->adj_list[i].active;
             j++;
           }
           break;
@@ -249,6 +257,7 @@ void send_route_update(graph_t *graph, switch_info_t *switch_info) {
       for(j = 0; j < graph->size; j++) {
         rup.route_table[j] = (char)table[j];
       }
+      rup.route_table[j] = -2;
       
       curr_message.size = sizeof(route_update_t);
       memcpy(curr_message.data, &rup, sizeof(route_update_t)); 
@@ -311,7 +320,7 @@ int main(int argc, char *argv[])
 	fclose(file);
 
   // Read Network Topology File
-  if((graph = create_graph_from_file(argv[3])) == NULL) {
+  if((graph = create_graph_from_file(argv[2])) == NULL) {
     printf("Error: Couldn't create graph from file: %s\n", argv[1]);
     return EXIT_FAILURE;
   }
@@ -329,9 +338,9 @@ int main(int argc, char *argv[])
 	params[receive].sleep_time = (rand() % 10) + 1;//1 to 10
 	strncpy(params[receive].file_name, "test.txt",log_size);//no buff overflow
 	params[receive].file_lock  = file_lock;
-	params[receive].port_num = atoi(argv[2]);//portnum
-	params[receive].dest_port= atoi(argv[3]);//dest portnum
-	strncpy(params[receive].serv_name,argv[1],serv_name_size);//will not buffer overflow
+	params[receive].port_num = atoi(argv[1]);//portnum
+	//params[receive].dest_port= atoi(argv[3]);//dest portnum
+	//strncpy(params[receive].serv_name,argv[1],serv_name_size);//will not buffer overflow
 
 	//threads default to joinable state, not detached
 	//create reveiver
@@ -342,9 +351,9 @@ int main(int argc, char *argv[])
 	params[send].sleep_time = (rand() % 10) + 1;//1 to 10
 	strncpy(params[send].file_name, "test.txt",log_size);//no buff overflow
 	params[send].file_lock  = file_lock;
-	params[send].port_num = atoi(argv[2]);//portnum
-	params[send].dest_port= atoi(argv[3]);//dest portnum
-	strncpy(params[send].serv_name,argv[1],serv_name_size);//will not buffer overflow
+	//params[send].port_num = atoi(argv[2]);//portnum
+	//params[send].dest_port= atoi(argv[3]);//dest portnum
+	//strncpy(params[send].serv_name,argv[1],serv_name_size);//will not buffer overflow
 
 	//threads default to joinable state, not detached
 	//create reveiver
@@ -357,7 +366,23 @@ int main(int argc, char *argv[])
 	
   //*************** BEGIN SDN CONTROLLER ********************
 
+ 
+  // Temporary Test code:
+  /*
+  for(i = 0; i < graph->size; i++) {
+    memset(&reg_req_temp, 0, sizeof(register_resp_t));
+    reg_req_temp.type = REGISTER_REQUEST;
+    reg_req_temp.switch_id = (unsigned char)i;
+    reg_req_temp.host = i+1;
+    reg_req_temp.port = i+2;
+    curr_message.size = sizeof(register_req_t);
+    memcpy(curr_message.data, &reg_req_temp, sizeof(register_req_t)); 
+    curr_message.host = reg_req_temp.host;
+    curr_message.port = reg_req_temp.port;
+    while (!enqueue(&rq_lock, rcv_queue, curr_message, &rq_head, &rq_tail, RCV_QUEUE_SIZE)) {}
+  }*/
   
+ 
   // MAIN SDN CONTROLLER LOOP 
   while (1) {
     // React to any pending messages
@@ -369,7 +394,7 @@ int main(int argc, char *argv[])
         switch (curr_message_type) {
 
           case REGISTER_REQUEST :
-            memcpy(&reg_req_temp, &curr_message, sizeof(register_req_t));
+            memcpy(&reg_req_temp, curr_message.data, sizeof(register_req_t));
             memset(&reg_resp_temp, 0, sizeof(register_resp_t));
 
             activate_switch(graph,reg_req_temp.switch_id);
@@ -403,7 +428,7 @@ int main(int argc, char *argv[])
             break;
 
           case TOPOLOGY_UPDATE :
-            memcpy(&topology_update_temp, &curr_message, sizeof(topology_update_t));
+            memcpy(&topology_update_temp, &curr_message.data, sizeof(topology_update_t));
 
             // set switch alive time
             switch_info[topology_update_temp.sender_id].alive_time = current_timestamp();
@@ -444,7 +469,7 @@ int main(int argc, char *argv[])
     for(i=0; i < graph->size; i++) {
       if(graph->adj_list[i].active){ // check active links 
         if((curr_time - switch_info[i].alive_time) > K_SEC*M_MISSES*1000) {
-          // found dead switch 
+          // found dead switch
           deactivate_switch(graph, i);
           switch_info[i].port = -1;
           switch_info[i].host = 0;
@@ -564,15 +589,6 @@ void * transmitter (void * param){
 	if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) //UDP
     	exit(-2);//UDP FAILED
 	
-	//retrieve address from given hostname
-	if ((server = gethostbyname(params.serv_name)) == NULL){
-		printf("SERVER: %s not found", params.serv_name);
-		exit(-3);
-	}
-	dest_addresses = (struct in_addr **) server->h_addr_list;
-	printf("%s\n", inet_ntoa(*dest_addresses[0]));
-
-	
 	//get input from command line
 	while(1){
     do {
@@ -590,7 +606,7 @@ void * transmitter (void * param){
 	  bytes_sent= sendto(udp_fd, sendbuffer, message.size,0, (struct sockaddr *) &server_addr,serverlength);
 	  if(bytes_sent < 0){
 	  	printf("sendto failed\n");
-	  	exit(-7);
+	  	//exit(-7);
 	  }
 	}
 	close(udp_fd);

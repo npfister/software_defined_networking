@@ -2,7 +2,7 @@
 #define PACKET_TYPES_H
 
 #define K_SEC     5
-#define M_MISSES  3
+#define M_MISSES  1
 
 #define MAX_NEIGHBORS 16
 #define MAX_SWITCHES 32
