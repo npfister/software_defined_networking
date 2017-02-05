@@ -426,8 +426,8 @@ int main(int argc, char *argv[])
             memset(&reg_resp_temp, 0, sizeof(register_resp_t));
 
             activate_switch(graph,reg_req_temp.switch_id);
-            switch_info[reg_req_temp.switch_id].port = reg_req_temp.port;
-            switch_info[reg_req_temp.switch_id].host = reg_req_temp.host;
+            switch_info[reg_req_temp.switch_id].port = curr_message.port;
+            switch_info[reg_req_temp.switch_id].host = curr_message.host;
             switch_info[reg_req_temp.switch_id].alive_time = current_timestamp();
 
             log_event(REGISTER_REQUEST, (void*)&reg_req_temp, -1, -1, -1, 0);
@@ -578,6 +578,8 @@ void * receiver (void * param){
 	while(1){
 	  bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
     message.size = bytes_received;
+    message.port = ntohs(server_addr.sin_port);
+    message.host = ntohs(server_addr.sin_addr.s_addr);
     memcpy(message.data, rcvbuffer, bytes_received);
     enqueue(&rq_lock, rcv_queue, message, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
 	}
