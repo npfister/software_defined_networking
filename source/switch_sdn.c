@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 	params[receive].registered = &registered;
 	params[receive].file_lock = &file_lock;
 	params[receive].swb_mutex = &swb_mutex;
-	params[receive].port_num = 1024 + 1;//REMOVE (rand() % 500) + (time(NULL) % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
+	params[receive].port_num = 1024 + (rand() % 500) + (time(NULL) % 500);//this switch's portnum, 1024+ to get above well known ports, port will be b/t 1024 and 2024
 	params[receive].ctrl_port= atoi(argv[3]);//controller's portnum
 	strncpy(params[receive].serv_name,argv[2],serv_name_size);//will not buffer overflow
 
@@ -370,7 +370,7 @@ void * transmitter (void * param){
 	server_addr.sin_port = htons(params.ctrl_port);
 	//send packet
 	serverlength = sizeof(server_addr);
-	bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+	bytes_sent= sendto(udp_fd,sendbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr,serverlength);
 	if(bytes_sent < 0){
 		printf("sendto failed\n");
 		exit(-21);
@@ -411,8 +411,9 @@ void * transmitter (void * param){
 			//do not send kalives to switches who are marked link_alive = FALSE or negatvie
 			//my_last_kalive_sent = time()
 		if((curr_time - my_last_kalive_sent) >= K_SEC){//send keep_alive to all switches with alive links
+			switch_board.send_topup =1;
 			for(i=0;(switch_board.neighbor_id[i]!=-1);i++){
-				if(switch_board.link_alive[i]==1){//don't send keep_alivess to non-dead switches
+				if(switch_board.link_alive[i]==1){//send keep_alivess to non-dead switches
 					memset(sendbuffer,0x00, sizeof(sendbuffer));//clear buffer
 					//populate sendbuffer
 					temp_kalive = (keep_alive_t *) sendbuffer;
@@ -423,7 +424,7 @@ void * transmitter (void * param){
 					server_addr.sin_port = htons(params.ctrl_port);
 					//send packet
 					serverlength = sizeof(server_addr);
-					bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+					bytes_sent= sendto(udp_fd,sendbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr,serverlength);
 					if(bytes_sent < 0){
 						printf("sendto failed\n");
 						exit(-21);
@@ -461,7 +462,7 @@ void * transmitter (void * param){
 			server_addr.sin_port = htons(params.ctrl_port);
 			//send packet
 			serverlength = sizeof(server_addr);
-			bytes_sent= sendto(udp_fd,sendbuffer,strlen(sendbuffer),0, (struct sockaddr *) &server_addr,serverlength);
+			bytes_sent= sendto(udp_fd,sendbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr,serverlength);
 			if(bytes_sent < 0){
 				printf("sendto failed\n");
 				exit(-21);
@@ -517,12 +518,12 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 
 	switch(ptype){
 		case REGISTER_RESPONSE : {
-			if(sizeof(register_resp_t) != bytes_received){
+			/*if(sizeof(register_resp_t) != bytes_received){
 				printf("incorrect register_resp_t struct sent\n");
 				exit(-15);
-			}
+			}*/
 			register_resp_t * reg_res;
-			reg_res = (register_resp_t *) &rcvbuffer[1];
+			reg_res = (register_resp_t *) rcvbuffer;
 			//copy packet contents
 			//critical section
 			pthread_mutex_lock(swb_mutex);
@@ -571,12 +572,12 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			break;
 		}
 		case KEEP_ALIVE : {
-			if(sizeof(keep_alive_t) != bytes_received){
+			/*if(sizeof(keep_alive_t) != bytes_received){
 				printf("incorrect keep_alive_t struct sent\n");
 				exit(-15);
-			}
+			}*/
 			keep_alive_t * k_alive;
-			k_alive = (keep_alive_t *) &rcvbuffer[1];
+			k_alive = (keep_alive_t *) rcvbuffer;
 			//find sender in arrays, reset their timestamp and active status
 			//critical section
 			pthread_mutex_lock(swb_mutex);
@@ -608,10 +609,10 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			break;
 		}
 		case ROUTE_UPDATE : {
-			if(sizeof(route_update_t) != bytes_received){
+			/*if(sizeof(route_update_t) != bytes_received){
 				printf("incorrect route_update_t struct sent\n");
 				exit(-15);
-			}
+			}*/
 			//critical section
 			pthread_mutex_lock(swb_mutex);
 			//copy routing table into my local routing table
