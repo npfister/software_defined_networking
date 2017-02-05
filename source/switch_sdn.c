@@ -367,6 +367,11 @@ void * transmitter (void * param){
 		exit(-21);
 	}
 
+	while(pthread_rwlock_trywrlock(&log_lock)){}
+	fprintf(file, "SEND - REGISTER_REQUEST\n");
+	//release file_lock
+	pthread_rwlock_unlock(&log_lock);
+
 	//block until receiver tells me REGISTER_RESPONE received
 	pthread_mutex_lock(&params.swb_mutex);
 	pthread_cond_wait(&params.registered,&params.swb_mutex);
@@ -412,6 +417,12 @@ void * transmitter (void * param){
 					}
 				}
 			}
+			if(log_level){//if verbose logging is on
+				while(pthread_rwlock_trywrlock(&log_lock)){}
+				fprintf(file, "SEND - KEEP_ALIVE\n");
+				//release file_lock
+				pthread_rwlock_unlock(&log_lock);		
+			}
 			my_last_kalive_sent = curr_time;
 		}
 
@@ -441,6 +452,11 @@ void * transmitter (void * param){
 				printf("sendto failed\n");
 				exit(-21);
 			}
+			
+			while(pthread_rwlock_trywrlock(&log_lock)){}
+			fprintf(file, "SEND - TOPOLOGY_UPDATE\n");
+			//release file_lock
+			pthread_rwlock_unlock(&log_lock);
 		}//END TOPOLOGY_UPDATE
 		
 		//release struct lock
