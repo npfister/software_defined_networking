@@ -37,7 +37,7 @@ typedef struct {
   int size;
   unsigned char data[rcv_buff_size];
   unsigned int host;
-  int port;
+  short int port;
 } nc_message_t;
 
 //struct to pass multiple things to entry function
@@ -54,7 +54,7 @@ struct params {
 typedef struct {
   long long alive_time;
   unsigned int host;
-  int port;
+  short int port;
 } switch_info_t;
 
  
@@ -101,8 +101,8 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, in
       case REGISTER_REQUEST :
         reg_req = (register_req_t*)message;
         fprintf(file, "\nController: Logging Register Request Message\n");
-        fprintf(file, "Controller: switch_id: %d\nhost: %d\nport%d\n",
-          reg_req->switch_id, reg_req->host, reg_req->port);
+        fprintf(file, "Controller: switch_id: %d\nhost: %d\nport: %d\n",
+          reg_req->switch_id, (unsigned int)reg_req->host, (unsigned short int)reg_req->port);
         break;
 
       case REGISTER_RESPONSE :
@@ -410,24 +410,33 @@ int main(int argc, char *argv[])
   while (!enqueue(&rq_lock, rcv_queue, curr_message, &rq_head, &rq_tail, RCV_QUEUE_SIZE)) {}
   */
  
-  // MAIN SDN CONTROLLER LOOP 
+  // MAIN SDN CONTROLLER LOOP
+  
+  printf("Entering main loop...\n");
+
+ 
   while (1) {
     // React to any pending messages
     do {
       curr_message = dequeue(&rq_lock, rcv_queue, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
       
       if(curr_message.size != 0) {
+
         curr_message_type = curr_message.data[0];
+        
+        printf("Received a message of type: %d\n", curr_message_type);
 
         switch (curr_message_type) {
 
           case REGISTER_REQUEST :
             memcpy(&reg_req_temp, curr_message.data, sizeof(register_req_t));
             memset(&reg_resp_temp, 0, sizeof(register_resp_t));
+      
+            reg_req_temp.host = curr_message.host;
 
             activate_switch(graph,reg_req_temp.switch_id);
-            switch_info[reg_req_temp.switch_id].port = curr_message.port;
-            switch_info[reg_req_temp.switch_id].host = curr_message.host;
+            switch_info[reg_req_temp.switch_id].port =  reg_req_temp.port;
+            switch_info[reg_req_temp.switch_id].host =  curr_message.host;
             switch_info[reg_req_temp.switch_id].alive_time = current_timestamp();
 
             log_event(REGISTER_REQUEST, (void*)&reg_req_temp, -1, -1, -1, 0);
@@ -547,6 +556,8 @@ void * receiver (void * param){
   
   //Message vars
   nc_message_t message;
+
+  printf("Receiver spawned\n");
 	
 	//SETUP UDP
 	//get socket file descriptor
@@ -575,13 +586,18 @@ void * receiver (void * param){
   // host and port are ignored in receive queue
 	message.port = 0;
   message.host = 0;
+  int i;
+	memset(rcvbuffer, 0x00, rcv_buff_size);
 	while(1){
 	  bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
-    message.size = bytes_received;
+    message.size = bytes_received; 
+
     message.port = ntohs(server_addr.sin_port);
-    message.host = ntohs(server_addr.sin_addr.s_addr);
-    memcpy(message.data, rcvbuffer, bytes_received);
+    message.host = ntohl(server_addr.sin_addr.s_addr);
+    memcpy(message.data, rcvbuffer,rcv_buff_size);
     enqueue(&rq_lock, rcv_queue, message, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
+    printf("Recieved a message from: host: %d port %d size: %d\n", (unsigned int)message.host, (unsigned short int)message.port, bytes_received);
+
 	}
 	//CAREFUL recvfrom resets server_addr every time, figure out how to repeatedly receive
 
@@ -607,6 +623,8 @@ void * transmitter (void * param){
 
   //message vars
   nc_message_t message;
+  
+  printf("Transmitter spawned\n");
 
 	//SETUP UDP
 	//get socket file descriptor
@@ -619,15 +637,18 @@ void * transmitter (void * param){
       message = dequeue(&sq_lock, send_queue, &sq_head, &sq_tail, SEND_QUEUE_SIZE);
     } while (message.size == 0);
 
+    printf("Sending message\n");
+
 	  //fill sockaddr_in
 	  memset(&server_addr, 0x00, sizeof(struct sockaddr_in));
 	  server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = message.host; 
-	  server_addr.sin_port = message.port;
+    server_addr.sin_addr.s_addr = htonl(message.host); 
+	  server_addr.sin_port = htons(message.port);
+	  memset(sendbuffer, 0x00, rcv_buff_size);
     memcpy(sendbuffer, message.data, message.size);	
 
 	  serverlength = sizeof(server_addr);
-	  bytes_sent= sendto(udp_fd, sendbuffer, message.size,0, (struct sockaddr *) &server_addr,serverlength);
+	  bytes_sent= sendto(udp_fd, sendbuffer, rcv_buff_size,0, (struct sockaddr *) &server_addr,serverlength);
 	  if(bytes_sent < 0){
 	  	printf("sendto failed\n");
 	  	//exit(-7);

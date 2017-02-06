@@ -7,7 +7,7 @@
 #define SW_DIED (K_SEC * M_MISSES) //time after which a switch is dead and a topology update should be sent
 
 #define MAX_NEIGHBORS 16
-#define MAX_SWITCHES 32
+#define MAX_SWITCHES 31
 
 //enum for packet types
 typedef enum packet_types pack_t;
@@ -41,8 +41,8 @@ typedef struct {
   unsigned char type;
   char neighbor_id[MAX_NEIGHBORS]; // -1 -> invalid entry
   unsigned char active_flag[MAX_NEIGHBORS];
-  unsigned char host[MAX_NEIGHBORS];
-  unsigned char port[MAX_NEIGHBORS];
+  unsigned int host[MAX_NEIGHBORS];
+  unsigned short int port[MAX_NEIGHBORS];
 }register_resp_t;
 
 typedef struct { 
