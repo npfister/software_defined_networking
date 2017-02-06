@@ -101,7 +101,7 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, in
       case REGISTER_REQUEST :
         reg_req = (register_req_t*)message;
         fprintf(file, "\nController: Logging Register Request Message\n");
-        fprintf(file, "Controller: switch_id: %d\nhost: %d\nport: %d\n",
+        fprintf(file, "Controller: switch_id: %d\nhost: %u\nport: %d\n",
           reg_req->switch_id, (unsigned int)reg_req->host, (unsigned short int)reg_req->port);
         break;
 
@@ -110,7 +110,7 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, in
         reg_resp = (register_resp_t*)message;
         fprintf(file, "\nController: Logging Register Response Message\n");
         while(reg_resp->neighbor_id[i] != -1 && i < MAX_NEIGHBORS) {
-          fprintf(file, "Controller: Neighbor_id: %d\nactive: %d\nhost:%d\nport:%d\n",
+          fprintf(file, "Controller: Neighbor_id: %d\nactive: %d\nhost:%u\nport:%d\n",
             reg_resp->neighbor_id[i], reg_resp->active_flag[i], reg_resp->host[i],
             reg_resp->port[i]);
           i++;
@@ -140,7 +140,7 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, in
         fprintf(file, "\nController: Logging Route Update Message\n");
         fprintf(file, "Controller: Switch: %d\n", switch_d);
         while(r_update->route_table[i] != -2 && i < MAX_NEIGHBORS) {
-          fprintf(file, "Controller: To switch: %d\nNext Hop: %d\n",
+          fprintf(file, "Destination: %d\tNext Hop: %d\n",
             i, r_update->route_table[i]);
           i++;
         }  
@@ -215,28 +215,22 @@ void fill_in_neighbors(register_resp_t *resp, graph_t *graph, switch_info_t *swi
   edge_t *curr_ptr = graph->adj_list[switch_id].next;
 
   while(curr_ptr != NULL) {
-    if(switch_info[curr_ptr->vertex_conn].port != -1) { //is registered
-      resp->neighbor_id[j] = curr_ptr->vertex_conn;
-      resp->active_flag[j] = graph->adj_list[curr_ptr->vertex_conn].active;
-      j++;
-    }
+    resp->neighbor_id[j] = curr_ptr->vertex_conn;
+    resp->active_flag[j] = (switch_info[curr_ptr->vertex_conn].port != -1);
+    j++;
     curr_ptr = curr_ptr->next;
   }
 
   for(i = 0; i < switch_id; i++) {
     curr_ptr = graph->adj_list[i].next;
-    if(graph->adj_list[i].active) {
-      while(curr_ptr != NULL) {
-        if(curr_ptr->vertex_conn == switch_id) {
-          if(switch_info[i].port != -1) { //is registered   
-            resp->neighbor_id[j] = i;
-            resp->active_flag[j] = graph->adj_list[i].active;
-            j++;
-          }
-          break;
-        }
-        curr_ptr = curr_ptr->next;
+    while(curr_ptr != NULL) {
+      if(curr_ptr->vertex_conn == switch_id) {
+        resp->neighbor_id[j] = i;
+        resp->active_flag[j] = (switch_info[i].port != -1);
+        j++;
+        break;
       }
+      curr_ptr = curr_ptr->next;
     }
   }
 
@@ -475,6 +469,10 @@ int main(int argc, char *argv[])
             for(i = 0; i < graph->size; i++) {
               if(topology_update_temp.neighbor_id[i] == -1) break;
 
+              if(topology_update_temp.active_flag[i]) {
+                printf("C: Node %d was marked active by %d\n", topology_update_temp.neighbor_id[i], topology_update_temp.sender_id);
+              }
+
               link_temp = find_link(graph, topology_update_temp.sender_id, topology_update_temp.neighbor_id[i]);
 
               if(link_temp == NULL) {
@@ -596,7 +594,6 @@ void * receiver (void * param){
     message.host = ntohl(server_addr.sin_addr.s_addr);
     memcpy(message.data, rcvbuffer,rcv_buff_size);
     enqueue(&rq_lock, rcv_queue, message, &rq_head, &rq_tail, RCV_QUEUE_SIZE);
-    printf("Recieved a message from: host: %d port %d size: %d\n", (unsigned int)message.host, (unsigned short int)message.port, bytes_received);
 
 	}
 	//CAREFUL recvfrom resets server_addr every time, figure out how to repeatedly receive
