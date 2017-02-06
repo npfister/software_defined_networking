@@ -105,8 +105,10 @@ int main(int argc, char *argv[])
 
 	//clear log file
 	FILE * file;
-	if((file=fopen(params[receive].file_name,"w")) == NULL)
+	if((file=fopen(params[receive].file_name,"a")) == NULL)
 		exit(-5);
+	fprintf(file,"STARTUP\n");
+	printf("STARTUP");
 	fclose(file);
 
 	//CMD LINE OPTIONS
@@ -434,7 +436,8 @@ void * transmitter (void * param){
 
 			if(log_level){//if verbose logging is on
 				while(pthread_rwlock_trywrlock(params.file_lock)){}
-				fprintf(file, "SEND - KEEP_ALIVE\n");
+				fprintf(file, "SEND - KEEP_ALIVEs\n");
+				printf("SEND - KEEP_ALIVEs\n");
 				//release file_lock
 				pthread_rwlock_unlock(params.file_lock);		
 			}
@@ -470,6 +473,7 @@ void * transmitter (void * param){
 			
 			while(pthread_rwlock_trywrlock(params.file_lock)){}
 			fprintf(file, "SEND - TOPOLOGY_UPDATE\n");
+			printf("SEND - TOPOLOGY_UPDATE\n");
 			//release file_lock
 			pthread_rwlock_unlock(params.file_lock);
 		}//END TOPOLOGY_UPDATE
@@ -621,6 +625,7 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			//log received packet
 			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- ROUTE_UPDATE\n");
+			printf("RCV -- ROUTE_UPDATE\n");
 			//release file_lock
 			pthread_rwlock_unlock(log_lock);
 			break;

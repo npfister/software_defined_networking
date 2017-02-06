@@ -3,7 +3,7 @@
 CC=gcc
 CFLAGS= -Wall -Wshadow -pthread -g
 
-all: clean pthread_warm_up pthreads_with_logging p2p
+all: clean pthread_warm_up pthreads_with_logging p2p switch_sdn
 
 clean:
 	rm -rf pthread_warm_up pthreads_with_logging p2p_msg_client test.txt *.o graph_test *.gch sdn_controller
