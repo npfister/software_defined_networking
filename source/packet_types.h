@@ -47,6 +47,7 @@ typedef struct {
 
 typedef struct { 
   unsigned char type;
+  unsigned short int port;
   unsigned char sender_id;
 }keep_alive_t;
 
