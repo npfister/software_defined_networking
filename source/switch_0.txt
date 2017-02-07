@@ -1,0 +1,76 @@
+STARTUP
+SEND - REGISTER_REQUEST
+RCV -- REGISTER_RESPONSE: my switchID=0
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |255 |255 |255 |255 |255 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+KALIVE to 5 on host: 2150499419 port: 1283
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 3 on host: 2150499419 port: 1222
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 1 on host: 2150499419 port: 1535
+contents: sender_id: 0 port_sender: 1599 
+SEND - KEEP_ALIVEs
+SEND - TOPOLOGY_UPDATE
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  5 |  5 |  5 |  5 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  5 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  3 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- KEEP_ALIVE: from switchID=1
+RCV -- KEEP_ALIVE: from switchID=5
+KALIVE to 5 on host: 2150499419 port: 1283
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 3 on host: 2150499419 port: 1222
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 1 on host: 2150499419 port: 1535
+contents: sender_id: 0 port_sender: 1599 
+SEND - KEEP_ALIVEs
+SEND - TOPOLOGY_UPDATE
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  5 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  3 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- KEEP_ALIVE: from switchID=1
+RCV -- KEEP_ALIVE: from switchID=5
+KALIVE to 5 on host: 2150499419 port: 1283
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 3 on host: 2150499419 port: 1222
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 1 on host: 2150499419 port: 1535
+contents: sender_id: 0 port_sender: 1599 
+SEND - KEEP_ALIVEs
+SEND - TOPOLOGY_UPDATE
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  5 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  3 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- KEEP_ALIVE: from switchID=1
+RCV -- KEEP_ALIVE: from switchID=5
+KALIVE to 5 on host: 2150499419 port: 1283
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 3 on host: 2150499419 port: 1222
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 1 on host: 2150499419 port: 1535
+contents: sender_id: 0 port_sender: 1599 
+SEND - KEEP_ALIVEs
+SEND - TOPOLOGY_UPDATE
+RCV -- ROUTE_UPDATE, 255= invalid dest., 254 end of reachable destinations
+DESTINATION:  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 |
+NEXT HOP   :  0 |  1 |  5 |  5 |  1 |  5 |254 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |255 |
+RCV -- KEEP_ALIVE: from switchID=1
+RCV -- KEEP_ALIVE: from switchID=5
+KALIVE to 5 on host: 2150499419 port: 1283
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 3 on host: 2150499419 port: 1222
+contents: sender_id: 0 port_sender: 1599 
+KALIVE to 1 on host: 2150499419 port: 1535
+contents: sender_id: 0 port_sender: 1599 
