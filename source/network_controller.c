@@ -1,6 +1,12 @@
 //Author: Nicholas A. Pfister
+//Modified by: John Skubic
 //pthread p2p message example
-//run command: ./p2p_msg_client PORTNUM NETWORK_TOPOLOGY_FILE 
+//
+//Modifications include:
+//Integration of graph for widest path and route table calculations
+//Receive and send queues for sending and receiving from switches
+//Code to handle the receiving of messages and reacting
+//Tracking of dead and alive switches/links
 
 #include <pthread.h>
 #include <stdio.h>
@@ -586,7 +592,6 @@ void * receiver (void * param){
   // host and port are ignored in receive queue
 	message.port = 0;
   message.host = 0;
-  int i;
 	memset(rcvbuffer, 0x00, rcv_buff_size);
 	while(1){
 	  bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);

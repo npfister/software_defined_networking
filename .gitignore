@@ -9,3 +9,6 @@ source/sdn_controller
 source/pthreads_with_logging
 source/test.txt
 source/graph_test
+source/switch_*.txt
+source/controller.txt
+source/switch_sdn
