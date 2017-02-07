@@ -29,6 +29,8 @@
 #define RCV_QUEUE_SIZE 32
 #define SEND_QUEUE_SIZE 32
 
+#define SDNC_LOG "controller.txt"
+
 
 //********** CUSTOM TYPES *****************
 
@@ -90,7 +92,7 @@ void log_event(int id, void *message, int link_d0, int link_d1, int switch_d, in
 
 
   while(pthread_rwlock_trywrlock(&file_lock)){} 
-	if((file=fopen("test.txt","a")) == NULL)
+	if((file=fopen(SDNC_LOG,"a")) == NULL)
 		exit(-5);
 
 
@@ -314,7 +316,7 @@ int main(int argc, char *argv[])
   sq_tail = 0;
 
 	//clear log file
-	if((file=fopen("test.txt","w")) == NULL)
+	if((file=fopen(SDNC_LOG,"w")) == NULL)
 		exit(-5);
 	fclose(file);
 
@@ -335,7 +337,7 @@ int main(int argc, char *argv[])
 	//create threads
 	//receiver
 	params[receive].sleep_time = (rand() % 10) + 1;//1 to 10
-	strncpy(params[receive].file_name, "test.txt",log_size);//no buff overflow
+	strncpy(params[receive].file_name, SDNC_LOG,log_size);//no buff overflow
 	params[receive].file_lock  = file_lock;
 	params[receive].port_num = atoi(argv[1]);//portnum
 	//params[receive].dest_port= atoi(argv[3]);//dest portnum
@@ -348,7 +350,7 @@ int main(int argc, char *argv[])
 
 	//transmitter
 	params[send].sleep_time = (rand() % 10) + 1;//1 to 10
-	strncpy(params[send].file_name, "test.txt",log_size);//no buff overflow
+	strncpy(params[send].file_name, SDNC_LOG,log_size);//no buff overflow
 	params[send].file_lock  = file_lock;
 	//params[send].port_num = atoi(argv[2]);//portnum
 	//params[send].dest_port= atoi(argv[3]);//dest portnum

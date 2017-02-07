@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
 
 	//clear log file
 	FILE * file;
-	if((file=fopen(params[receive].file_name,"a")) == NULL)
+	if((file=fopen(params[receive].file_name,"w")) == NULL)
 		exit(-5);
 	fprintf(file,"STARTUP\n");
 	printf("STARTUP\n");
@@ -241,9 +241,7 @@ void * receiver (void * param){
 
 	//END UDP SETUP
 
-	//open log file
-	if((file=fopen(params.file_name,"a")) == NULL)//open to append
-		exit(-4);
+
 
 	//block for REGISTER_RESPONSE
 	pack_t ptype;
@@ -252,7 +250,11 @@ void * receiver (void * param){
 		bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
 		ptype = (int) rcvbuffer[0];
 	}
+
+  if((file=fopen(params.file_name,"a")) == NULL)//open to append
+    exit(-4);
 	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex, server_addr);//will copy packet into correct struct 
+  fclose(file);
 
 	//once received
 	pthread_mutex_lock(params.swb_mutex);
@@ -262,8 +264,11 @@ void * receiver (void * param){
 
 	//UP AND RUNNING PACKET RECEIVING
 	while(1){
-	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
+	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);  
+  if((file=fopen(params.file_name,"a")) == NULL)//open to append
+    exit(-4);
 	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex, server_addr);
+  fclose(file);
 	}
 	
 
@@ -318,9 +323,6 @@ void * transmitter (void * param){
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
 	FILE *file;//log file
-	//open log file
-	if((file=fopen(params.file_name,"a")) == NULL)//open to append
-		exit(-4);
 	
 	//UDP vars
 	int udp_fd, bytes_sent,serverlength;
@@ -381,11 +383,12 @@ void * transmitter (void * param){
 		exit(-21);
 	}
 
-	while(pthread_rwlock_trywrlock(params.file_lock)){}
+	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		exit(-4);
 	fprintf(file, "SEND - REGISTER_REQUEST\n");
 	//release file_lock
 	printf("SEND - REGISTER_REQUEST\n");
-	pthread_rwlock_unlock(params.file_lock);
+  fclose(file);
 	// END SENDING REGISTER_REQUEST
 
 	//block until receiver thread tells me REGISTER_RESPONE received
@@ -441,11 +444,12 @@ void * transmitter (void * param){
 			}
 
 			if(log_level){//if verbose logging is on
-				while(pthread_rwlock_trywrlock(params.file_lock)){}
+      	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		      exit(-4);
 				fprintf(file, "SEND - KEEP_ALIVEs\n");
 				printf("SEND - KEEP_ALIVEs\n");
 				//release file_lock
-				pthread_rwlock_unlock(params.file_lock);		
+				fclose(file);
 			}
 			my_last_kalive_sent = curr_time;
 		}
@@ -477,11 +481,12 @@ void * transmitter (void * param){
 				exit(-21);
 			}
 			
-			while(pthread_rwlock_trywrlock(params.file_lock)){}
+	    if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		    exit(-4);
 			fprintf(file, "SEND - TOPOLOGY_UPDATE\n");
 			printf("SEND - TOPOLOGY_UPDATE\n");
 			//release file_lock
-			pthread_rwlock_unlock(params.file_lock);
+			fclose(file);
 		}//END TOPOLOGY_UPDATE
 		
 		//release struct lock
@@ -574,11 +579,9 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			//end critical section
 			pthread_mutex_unlock(swb_mutex);
 			//log received packet
-			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
 			printf("RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
-			//release file_lock
-			pthread_rwlock_unlock(log_lock);
+
 			break;
 		}
 		case KEEP_ALIVE : {
@@ -611,8 +614,6 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			}
 			pthread_mutex_unlock(swb_mutex);
 			if(log_level){//if verbose logging is on
-				//log received packet
-				while(pthread_rwlock_trywrlock(log_lock)){}
 				fprintf(file, "RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
 				printf("RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
 				//release file_lock
@@ -631,11 +632,8 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			memcpy(route_table,&rcvbuffer[1],sizeof(char)*MAX_SWITCHES);
 			pthread_mutex_unlock(swb_mutex);
 			//log received packet
-			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- ROUTE_UPDATE\n");
-			printf("RCV -- ROUTE_UPDATE\n");
-			//release file_lock
-			pthread_rwlock_unlock(log_lock);
+			printf("RCV -- ROUTE_UPDATE\n");  
 			break;
 		}
 		default : {
