@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 		switch_board.last_kalive[i]= curr_time;//indicate that a kalive for this neighbor has not been received
 		switch_board.neighbor_id[i]= -1;//invalid entry
 		switch_board.active_flag[i]=  0;//0 is inactive, 1 is active
-		switch_board.link_alive [i]=  -1;//init to 2(no neighbor), 1 is alive, 0 is dead,fixed during register_response process_packet
+		switch_board.link_alive [i]=  -3;//-1 is alive, -2 is dead,fixed during register_response process_packet
 	}
 	//init log filename  --  snprintf prevents buffer overflows
 	snprintf(params[receive].file_name,log_size, "switch_%d.txt", (int) my_swID );//argv[1] is switchID
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
 
 	//clear log file
 	FILE * file;
-	if((file=fopen(params[receive].file_name,"w")) == NULL)
+	if((file=fopen(params[receive].file_name,"a")) == NULL)
 		exit(-5);
 	fprintf(file,"STARTUP\n");
 	printf("STARTUP\n");
@@ -241,7 +241,9 @@ void * receiver (void * param){
 
 	//END UDP SETUP
 
-
+	//open log file
+	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		exit(-4);
 
 	//block for REGISTER_RESPONSE
 	pack_t ptype;
@@ -250,11 +252,7 @@ void * receiver (void * param){
 		bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
 		ptype = (int) rcvbuffer[0];
 	}
-
-  if((file=fopen(params.file_name,"a")) == NULL)//open to append
-    exit(-4);
 	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex, server_addr);//will copy packet into correct struct 
-  fclose(file);
 
 	//once received
 	pthread_mutex_lock(params.swb_mutex);
@@ -264,11 +262,8 @@ void * receiver (void * param){
 
 	//UP AND RUNNING PACKET RECEIVING
 	while(1){
-	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);  
-  if((file=fopen(params.file_name,"a")) == NULL)//open to append
-    exit(-4);
+	bytes_received = recvfrom(udp_fd,rcvbuffer,rcv_buff_size,0, (struct sockaddr *) &server_addr, (socklen_t *) &serverlength);
 	process_packet(rcvbuffer, bytes_received, params.file_lock, file, params.swb_mutex, server_addr);
-  fclose(file);
 	}
 	
 
@@ -323,6 +318,9 @@ void * transmitter (void * param){
 	params_t * params_ptr = (params_t*) param;//receive struct that is passing parameters
 	params_t params = *params_ptr;
 	FILE *file;//log file
+	//open log file
+	if((file=fopen(params.file_name,"a")) == NULL)//open to append
+		exit(-4);
 	
 	//UDP vars
 	int udp_fd, bytes_sent,serverlength;
@@ -383,12 +381,11 @@ void * transmitter (void * param){
 		exit(-21);
 	}
 
-	if((file=fopen(params.file_name,"a")) == NULL)//open to append
-		exit(-4);
+	while(pthread_rwlock_trywrlock(params.file_lock)){}
 	fprintf(file, "SEND - REGISTER_REQUEST\n");
 	//release file_lock
 	printf("SEND - REGISTER_REQUEST\n");
-  fclose(file);
+	pthread_rwlock_unlock(params.file_lock);
 	// END SENDING REGISTER_REQUEST
 
 	//block until receiver thread tells me REGISTER_RESPONE received
@@ -421,7 +418,7 @@ void * transmitter (void * param){
 		if((curr_time - my_last_kalive_sent) >= K_SEC){//send keep_alive to all switches with alive links
 			switch_board.send_topup =1;
 			for(i=0;(switch_board.neighbor_id[i]!=-1);i++){
-				if(switch_board.link_alive[i]==1){//send keep_alives to non-dead switches
+				if(switch_board.link_alive[i]==-1){//send keep_alives to non-dead switches
 					memset(sendbuffer,0x00, sizeof(sendbuffer));//clear buffer
 					//populate sendbuffer
 					temp_kalive = (keep_alive_t *) sendbuffer;
@@ -444,12 +441,11 @@ void * transmitter (void * param){
 			}
 
 			if(log_level){//if verbose logging is on
-      	if((file=fopen(params.file_name,"a")) == NULL)//open to append
-		      exit(-4);
+				while(pthread_rwlock_trywrlock(params.file_lock)){}
 				fprintf(file, "SEND - KEEP_ALIVEs\n");
 				printf("SEND - KEEP_ALIVEs\n");
 				//release file_lock
-				fclose(file);
+				pthread_rwlock_unlock(params.file_lock);		
 			}
 			my_last_kalive_sent = curr_time;
 		}
@@ -481,12 +477,11 @@ void * transmitter (void * param){
 				exit(-21);
 			}
 			
-	    if((file=fopen(params.file_name,"a")) == NULL)//open to append
-		    exit(-4);
+			while(pthread_rwlock_trywrlock(params.file_lock)){}
 			fprintf(file, "SEND - TOPOLOGY_UPDATE\n");
 			printf("SEND - TOPOLOGY_UPDATE\n");
 			//release file_lock
-			fclose(file);
+			pthread_rwlock_unlock(params.file_lock);
 		}//END TOPOLOGY_UPDATE
 		
 		//release struct lock
@@ -562,26 +557,28 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 				switch_board.last_kalive[i] = curr_time;
 				//fix link_alive array
 				//change switchID's in switchboard.link_alive[] to their relative-to-
-				//neighbor_ID correct array placement and be active 1 or dead 0,
+				//neighbor_ID correct array placement and be active -1 or dead -2,
 				for(j=0;j<MAX_NEIGHBORS;j++){
 					if(switch_board.neighbor_id[i] == temp_link_alive[j]){//dead link's neighborIDs initially in last
-						switch_board.link_alive[i] = 0;
+						switch_board.link_alive[i] = -2;
 					}
-					else if(switch_board.link_alive[i] == 0){
+					else if(switch_board.link_alive[i] == -2){
 						//don't overwrite an already declared dead link
 						//continue;
 					}
 					else{//link was not declared dead by -f switches
-						switch_board.link_alive[i] = 1;//declare alive, maybe declared dead in a future iteration of a greater "i"	neighbor_id
+						switch_board.link_alive[i] = -1;//declare alive, maybe declared dead in a future iteration of a greater "i"	neighbor_id
 					}
 				}
 			}
 			//end critical section
 			pthread_mutex_unlock(swb_mutex);
 			//log received packet
+			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
 			printf("RCV -- REGISTER_RESPONSE: my switchID=%d\n", (int) my_swID );
-
+			//release file_lock
+			pthread_rwlock_unlock(log_lock);
 			break;
 		}
 		case KEEP_ALIVE : {
@@ -602,7 +599,7 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			for(i=0;(switch_board.neighbor_id[i] != -1);i++){
 				if(switch_board.neighbor_id[i] == k_alive->sender_id){
 					switch_board.last_kalive[i] = curr_time;
-					if((switch_board.active_flag[i]==0) & (switch_board.link_alive[i]==1)){//switch has come back to life and link is not dead (how we're modeling dead links)
+					if((switch_board.active_flag[i]==0) & (switch_board.link_alive[i]==-1)){//switch has come back to life and link is not dead (how we're modeling dead links)
 						switch_board.send_topup=1;
 						switch_board.active_flag[i] = 1;
 					}
@@ -614,6 +611,8 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			}
 			pthread_mutex_unlock(swb_mutex);
 			if(log_level){//if verbose logging is on
+				//log received packet
+				while(pthread_rwlock_trywrlock(log_lock)){}
 				fprintf(file, "RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
 				printf("RCV -- KEEP_ALIVE: from switchID=%d\n", (int) k_alive->sender_id );
 				//release file_lock
@@ -632,8 +631,11 @@ void process_packet (char * rcvbuffer,int bytes_received, pthread_rwlock_t * log
 			memcpy(route_table,&rcvbuffer[1],sizeof(char)*MAX_SWITCHES);
 			pthread_mutex_unlock(swb_mutex);
 			//log received packet
+			while(pthread_rwlock_trywrlock(log_lock)){}
 			fprintf(file, "RCV -- ROUTE_UPDATE\n");
-			printf("RCV -- ROUTE_UPDATE\n");  
+			printf("RCV -- ROUTE_UPDATE\n");
+			//release file_lock
+			pthread_rwlock_unlock(log_lock);
 			break;
 		}
 		default : {
